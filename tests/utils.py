@@ -45,7 +45,7 @@ def _gs_search_by_joint_names(
         try:
             gs_dof_idcs = dict()
             valid_joint_names = []
-            for v in entity.joints:
+            for v in chain.from_iterable(entity.joints):
                 valid_joint_names.append(v.name)
                 if v.name in joint_names:
                     if to == "entity":
@@ -127,7 +127,7 @@ def check_mujoco_model_consistency(
         joint_names = [
             joint.name
             for entity in gs_sim.entities
-            for joint in entity.joints
+            for joint in chain.from_iterable(entity.joints)
             if joint.name != "world" and joint.type != gs.JOINT_TYPE.FIXED
         ]
     if body_names is None:
