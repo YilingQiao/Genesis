@@ -109,7 +109,7 @@ def parse_link(mj, i_l, scale):
                 j_info["dofs_sol_params"] = np.repeat(mj_sol_params[None], 3, axis=0)
 
                 j_info["type"] = gs.JOINT_TYPE.SPHERICAL
-                j_info["n_qs"] = 3
+                j_info["n_qs"] = 4
                 j_info["n_dofs"] = 3
 
             elif mj_type == mujoco.mjtJoint.mjJNT_FREE:
@@ -134,10 +134,7 @@ def parse_link(mj, i_l, scale):
         mj_qpos_offset = mj.jnt_qposadr[jnt_adr] if jnt_adr != -1 else 0
         n_dofs = j_info["n_dofs"]
         j_info["quat"] = np.array([1.0, 0.0, 0.0, 0.0])
-        if j_info["type"] == gs.JOINT_TYPE.SPHERICAL:
-            j_info["init_qpos"] = gu.quat_to_xyz(mj.qpos0[mj_qpos_offset : (mj_qpos_offset + 4)])
-        else:
-            j_info["init_qpos"] = np.array(mj.qpos0[mj_qpos_offset : (mj_qpos_offset + n_dofs)])
+        j_info["init_qpos"] = np.array(mj.qpos0[mj_qpos_offset : (mj_qpos_offset + j_info["n_qs"])])
         j_info["dofs_damping"] = mj.dof_damping[mj_dof_offset : (mj_dof_offset + n_dofs)]
         j_info["dofs_invweight"] = mj.dof_invweight0[mj_dof_offset : (mj_dof_offset + n_dofs)]
         j_info["dofs_armature"] = mj.dof_armature[mj_dof_offset : (mj_dof_offset + n_dofs)]

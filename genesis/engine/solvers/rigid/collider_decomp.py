@@ -860,6 +860,14 @@ class Collider:
                     or self._solver.geoms_info[i_gb].type == gs.GEOM_TYPE.TERRAIN
                 ):
                     pass
+                elif (
+                    self._solver.geoms_info[i_ga].type
+                    == gs.GEOM_TYPE.CAPSULE
+                    == self._solver.geoms_info[i_ga].type
+                    == gs.GEOM_TYPE.CAPSULE
+                ):
+                    pass
+
                 elif self._solver.geoms_info[i_ga].is_convex and self._solver.geoms_info[i_gb].is_convex:
                     if ti.static(self._solver._box_box_detection):
                         if (
