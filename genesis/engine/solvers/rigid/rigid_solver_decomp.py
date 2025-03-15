@@ -524,6 +524,15 @@ class RigidSolver(Solver):
         joints_info_shape = self._batch_shape(self.n_joints) if self._options.batch_joints_info else self.n_joints
         self.joints_info = struct_joint_info.field(shape=joints_info_shape, needs_grad=False, layout=ti.Layout.SOA)
 
+        struct_joint_state = ti.types.struct(
+            xanchor=gs.ti_vec3,
+            xaxis=gs.ti_vec3,
+        )
+
+        self.joints_state = struct_joint_state.field(
+            shape=self._batch_shape(self.n_joints), needs_grad=False, layout=ti.Layout.SOA
+        )
+
         joints = tuple(chain.from_iterable(self.joints))
         self._kernel_init_joint_fields(
             joints_type=np.array([joint.type for joint in joints], dtype=gs.np_int),
@@ -1595,6 +1604,7 @@ class RigidSolver(Solver):
         for i_b in range(self._B):
             self._func_forward_kinematics(i_b)
             self._func_transform_COM(i_b)
+            self._func_forward_velocity(i_b)
             self._func_update_geoms(i_b)
 
         if ti.static(self._use_hibernation):
@@ -1622,6 +1632,7 @@ class RigidSolver(Solver):
         for i_b in envs_idx:
             self._func_forward_kinematics(i_b)
             self._func_transform_COM(i_b)
+            self._func_forward_velocity(i_b)
             self._func_update_geoms(i_b)
 
     def _func_constraint_force(self):
@@ -1980,63 +1991,38 @@ class RigidSolver(Solver):
                 I_l = [i_l, i_b] if ti.static(self._options.batch_links_info) else i_l
                 l_info = self.links_info[I_l]
 
-                i_j = self.links_info[I_l].joint_start
-                I_j = [i_j, i_b] if ti.static(self._options.batch_joints_info) else i_j
-                joint_type = self.joints_info[I_j].type
+                for i_j in range(l_info.joint_start, l_info.joint_end):
+                    offset_pos = self.links_state[i_l, i_b].COM - self.joints_state[i_j, i_b].xanchor
+                    I_j = [i_j, i_b] if ti.static(self._options.batch_joints_info) else i_j
+                    j_info = self.joints_info[I_j]
+                    joint_type = j_info.type
 
-                if joint_type == gs.JOINT_TYPE.FREE:
-                    for i_d in range(l_info.dof_start, l_info.dof_end):
-                        I_d = [i_d, i_b] if ti.static(self._options.batch_dofs_info) else i_d
-                        self.dofs_state[i_d, i_b].cdof_vel = self.dofs_info[I_d].motion_vel
-                        self.dofs_state[i_d, i_b].cdof_ang = gu.ti_transform_by_quat(
-                            self.dofs_info[I_d].motion_ang, self.links_state[i_l, i_b].j_quat
-                        )
+                    dof_start = j_info.dof_start
 
-                        offset_pos = self.links_state[i_l, i_b].COM - self.links_state[i_l, i_b].j_pos
-                        (
-                            self.dofs_state[i_d, i_b].cdof_ang,
-                            self.dofs_state[i_d, i_b].cdof_vel,
-                        ) = gu.ti_transform_motion_by_trans_quat(
-                            self.dofs_state[i_d, i_b].cdof_ang,
-                            self.dofs_state[i_d, i_b].cdof_vel,
-                            offset_pos,
-                            gu.ti_identity_quat(),
-                        )
+                    if joint_type == gs.JOINT_TYPE.REVOLUTE:
+                        self.dofs_state[dof_start, i_b].cdof_ang = self.joints_state[i_j, i_b].xaxis
+                        self.dofs_state[dof_start, i_b].cdof_vel = self.joints_state[i_j, i_b].xaxis.cross(offset_pos)
+                    elif joint_type == gs.JOINT_TYPE.PRISMATIC:
+                        self.dofs_state[dof_start, i_b].cdof_ang = ti.Vector.zero(gs.ti_float, 3)
+                        self.dofs_state[dof_start, i_b].cdof_vel = self.joints_state[i_j, i_b].xaxis
+                    elif joint_type == gs.JOINT_TYPE.SPHERICAL:
+                        xmat_T = gu.ti_quat_to_R(self.links_state[i_l, i_b].quat).transpose()
+                        for i_d in range(j_info.dof_start, j_info.dof_end):
+                            self.dofs_state[i_d, i_b].cdof_ang = xmat_T[i_d - j_info.dof_start, :]
+                            self.dofs_state[i_d, i_b].cdof_vel = xmat_T[i_d - j_info.dof_start, :].cross(offset_pos)
+                    elif joint_type == gs.JOINT_TYPE.FREE:
 
-                        self.dofs_state[i_d, i_b].cdofvel_ang = (
-                            self.dofs_state[i_d, i_b].cdof_ang * self.dofs_state[i_d, i_b].vel
-                        )
-                        self.dofs_state[i_d, i_b].cdofvel_vel = (
-                            self.dofs_state[i_d, i_b].cdof_vel * self.dofs_state[i_d, i_b].vel
-                        )
+                        for i_d in range(j_info.dof_start, j_info.dof_end + 3):
+                            self.dofs_state[i_d, i_b].cdof_ang = ti.Vector.zero(gs.ti_float, 3)
+                            self.dofs_state[i_d, i_b].cdof_vel = ti.Vector.zero(gs.ti_float, 3)
+                            self.dofs_state[i_d, i_b].cdof_vel[i_d - j_info.dof_start] = 1.0
 
-                elif joint_type == gs.JOINT_TYPE.FIXED:
-                    pass
+                        xmat_T = gu.ti_quat_to_R(self.links_state[i_l, i_b].quat).transpose()
+                        for i_d in range(j_info.dof_start + 3, j_info.dof_end + 6):
+                            self.dofs_state[i_d, i_b].cdof_ang = xmat_T[i_d - j_info.dof_start, :]
+                            self.dofs_state[i_d, i_b].cdof_vel = xmat_T[i_d - j_info.dof_start, :].cross(offset_pos)
 
-                else:
-                    for i_d in range(l_info.dof_start, l_info.dof_end):
-                        I_d = [i_d, i_b] if ti.static(self._options.batch_dofs_info) else i_d
-                        motion_vel = self.dofs_info[I_d].motion_vel
-                        motion_ang = self.dofs_info[I_d].motion_ang
-
-                        self.dofs_state[i_d, i_b].cdof_ang = gu.ti_transform_by_quat(
-                            motion_ang, self.links_state[i_l, i_b].j_quat
-                        )
-                        self.dofs_state[i_d, i_b].cdof_vel = gu.ti_transform_by_quat(
-                            motion_vel, self.links_state[i_l, i_b].j_quat
-                        )
-
-                        offset_pos = self.links_state[i_l, i_b].COM - self.links_state[i_l, i_b].j_pos
-                        (
-                            self.dofs_state[i_d, i_b].cdof_ang,
-                            self.dofs_state[i_d, i_b].cdof_vel,
-                        ) = gu.ti_transform_motion_by_trans_quat(
-                            self.dofs_state[i_d, i_b].cdof_ang,
-                            self.dofs_state[i_d, i_b].cdof_vel,
-                            offset_pos,
-                            gu.ti_identity_quat(),
-                        )
-
+                    for i_d in range(j_info.dof_start, j_info.dof_end):
                         self.dofs_state[i_d, i_b].cdofvel_ang = (
                             self.dofs_state[i_d, i_b].cdof_ang * self.dofs_state[i_d, i_b].vel
                         )
@@ -2196,8 +2182,8 @@ class RigidSolver(Solver):
     @ti.func
     def _func_transform_COM(self, i_b):
         self._func_COM_links(i_b)
-        self._func_COM_cd(i_b)
-        self._func_COM_cdofd(i_b)
+        # self._func_COM_cd(i_b)
+        # self._func_COM_cdofd(i_b)
 
     @ti.func
     def _func_forward_kinematics(self, i_b):
@@ -2212,126 +2198,178 @@ class RigidSolver(Solver):
                 self._func_forward_kinematics_entity(i_e, i_b)
 
     @ti.func
+    def _func_forward_velocity(self, i_b):
+        if ti.static(self._use_hibernation):
+            ti.loop_config(serialize=self._para_level < gs.PARA_LEVEL.ALL)
+            for i_e_ in range(self.n_awake_entities[i_b]):
+                i_e = self.awake_entities[i_e_, i_b]
+                self._func_forward_velocity_entity(i_e, i_b)
+        else:
+            ti.loop_config(serialize=self._para_level < gs.PARA_LEVEL.ALL)
+            for i_e in range(self.n_entities):
+                self._func_forward_velocity_entity(i_e, i_b)
+
+    @ti.func
     def _func_forward_kinematics_entity(self, i_e, i_b):
-        # calculate_j
         for i_l in range(self.entities_info[i_e].link_start, self.entities_info[i_e].link_end):
             I_l = [i_l, i_b] if ti.static(self._options.batch_links_info) else i_l
             l_info = self.links_info[I_l]
-            dof_start = l_info.dof_start
-            q_start = l_info.q_start
 
-            _i_j = self.links_info[I_l].joint_start
-            _I_j = [_i_j, i_b] if ti.static(self._options.batch_joints_info) else _i_j
-            joint_type = self.joints_info[_I_j].type
+            pos = l_info.pos
+            quat = l_info.quat
+            if l_info.parent_idx >= 0:
+                parent_pos = self.links_state[l_info.parent_idx, i_b].pos
+                parent_quat = self.links_state[l_info.parent_idx, i_b].quat
+                pos = parent_pos + gu.ti_transform_by_quat(pos, parent_quat)
+                quat = gu.ti_transform_quat_by_quat(quat, parent_quat)
 
-            if joint_type == gs.JOINT_TYPE.FREE:
-                for i_q in ti.static(range(3)):
-                    self.links_state[i_l, i_b].j_pos[i_q] = self.qpos[i_q + q_start, i_b]
-                    self.links_state[i_l, i_b].j_ang[i_q] = self.dofs_state[i_q + 3 + dof_start, i_b].vel
-                    self.links_state[i_l, i_b].j_vel[i_q] = self.dofs_state[i_q + dof_start, i_b].vel
-                for i_q in ti.static(range(4)):
-                    self.links_state[i_l, i_b].j_quat[i_q] = self.qpos[i_q + 3 + q_start, i_b]
+            for i_j in range(l_info.joint_start, l_info.joint_end):
+                I_j = [i_j, i_b] if ti.static(self._options.batch_joints_info) else i_j
+                j_info = self.joints_info[I_j]
+                joint_type = j_info.type
+                q_start = j_info.q_start
+                dof_start = j_info.dof_start
 
-                xyz = gu.ti_quat_to_xyz(self.links_state[i_l, i_b].j_quat)
-                for i_q in ti.static(range(3)):
-                    self.dofs_state[i_q + dof_start, i_b].pos = self.qpos[i_q + q_start, i_b]
-                    self.dofs_state[i_q + 3 + dof_start, i_b].pos = xyz[i_q]
-
-            elif joint_type == gs.JOINT_TYPE.FIXED:
-                self.links_state[i_l, i_b].j_pos = ti.Vector.zero(gs.ti_float, 3)
-                self.links_state[i_l, i_b].j_quat = gu.ti_identity_quat()
-                self.links_state[i_l, i_b].j_ang = ti.Vector.zero(gs.ti_float, 3)
-                self.links_state[i_l, i_b].j_vel = ti.Vector.zero(gs.ti_float, 3)
-
-            else:
-                self.dofs_state[dof_start, i_b].pos = self.qpos[q_start, i_b]
-                I_dof_start = [dof_start, i_b] if ti.static(self._options.batch_dofs_info) else dof_start
-                dof_info = self.dofs_info[I_dof_start]
-                self.links_state[i_l, i_b].j_pos = dof_info.motion_vel * (
-                    self.qpos[q_start, i_b] - self.qpos0[q_start, i_b]
-                )
-                self.links_state[i_l, i_b].j_quat = gu.ti_rotvec_to_quat(
-                    dof_info.motion_ang * (self.qpos[q_start, i_b] - self.qpos0[q_start, i_b])
-                )
-                self.links_state[i_l, i_b].j_ang = dof_info.motion_ang * self.dofs_state[dof_start, i_b].vel
-                self.links_state[i_l, i_b].j_vel = dof_info.motion_vel * self.dofs_state[dof_start, i_b].vel
-
-                for i_d in range(dof_start + 1, l_info.dof_end):
-                    I_d = [i_d, i_b] if ti.static(self._options.batch_dofs_info) else i_d
-                    dof_info = self.dofs_info[I_d]
-                    qi = q_start + i_d - dof_start
-                    self.dofs_state[i_d, i_b].pos = self.qpos[qi, i_b]
-                    ji_pos = dof_info.motion_vel * self.qpos[qi, i_b]
-                    ji_quat = gu.ti_rotvec_to_quat(dof_info.motion_ang * self.qpos[qi, i_b])
-
-                    (
-                        self.links_state[i_l, i_b].j_pos,
-                        self.links_state[i_l, i_b].j_quat,
-                    ) = gu.ti_transform_pos_quat_by_trans_quat(
-                        ji_pos, ji_quat, self.links_state[i_l, i_b].j_pos, self.links_state[i_l, i_b].j_quat
+                # compute axis and anchor
+                if joint_type == gs.JOINT_TYPE.FREE:
+                    # self.joints_state[i_j, i_b].xanchor = self.qpos[q_start:q_start+3, i_b]
+                    self.joints_state[i_j, i_b].xanchor = ti.Vector(
+                        [self.qpos[q_start, i_b], self.qpos[q_start + 1, i_b], self.qpos[q_start + 2, i_b]]
                     )
+                    self.joints_state[i_j, i_b].xaxis = ti.Vector([0.0, 0.0, 1.0])
+                elif joint_type == gs.JOINT_TYPE.FIXED:
+                    pass
+                else:
+                    ## TODO: get axis from jnt_axis
+                    axis = ti.Vector([0.0, 0.0, 1.0], dt=gs.ti_float)
+                    if joint_type == gs.JOINT_TYPE.REVOLUTE:
+                        axis = self.dofs_info[dof_start].motion_ang
+                    elif joint_type == gs.JOINT_TYPE.PRISMATIC:
+                        axis = self.dofs_info[dof_start].motion_vel
 
-                    ji_ang = dof_info.motion_ang * self.dofs_state[i_d, i_b].vel
-                    ji_vel = dof_info.motion_vel * self.dofs_state[i_d, i_b].vel
+                    self.joints_state[i_j, i_b].xanchor = gu.ti_transform_by_quat(j_info.pos, quat) + pos
+                    self.joints_state[i_j, i_b].xaxis = gu.ti_transform_by_quat(axis, quat)
 
-                    self.links_state[i_l, i_b].j_ang = self.links_state[i_l, i_b].j_ang + gu.ti_transform_by_quat(
-                        ji_ang, ji_quat
+                if joint_type == gs.JOINT_TYPE.FREE:
+                    pos = ti.Vector(
+                        [self.qpos[q_start, i_b], self.qpos[q_start + 1, i_b], self.qpos[q_start + 2, i_b]],
+                        dt=gs.ti_float,
                     )
-
-                    self.links_state[i_l, i_b].j_vel = self.links_state[i_l, i_b].j_vel + gu.ti_transform_by_quat(
-                        ji_vel + ji_pos.cross(ji_ang), ji_quat
+                    quat = ti.Vector(
+                        [
+                            self.qpos[q_start + 3, i_b],
+                            self.qpos[q_start + 4, i_b],
+                            self.qpos[q_start + 5, i_b],
+                            self.qpos[q_start + 6, i_b],
+                        ],
+                        dt=gs.ti_float,
                     )
-
-            if joint_type != gs.JOINT_TYPE.FREE:
-                for i_j in range(l_info.joint_start, l_info.joint_end):
-                    I_j = [i_j, i_b] if ti.static(self._options.batch_joints_info) else i_j
-                    j_info = self.joints_info[I_j]
-
-                    anchor_pos, anchor_quat = gu.ti_transform_pos_quat_by_trans_quat(
-                        j_info.pos,
-                        gu.ti_identity_quat(),
-                        ti.Vector.zero(gs.ti_float, 3),
-                        self.links_state[i_l, i_b].j_quat,
+                    quat = gu.ti_normalize(quat)
+                elif joint_type == gs.JOINT_TYPE.FIXED:
+                    pass
+                elif joint_type == gs.JOINT_TYPE.SPHERICAL:
+                    qloc = ti.Vector(
+                        [
+                            self.qpos[q_start, i_b],
+                            self.qpos[q_start + 1, i_b],
+                            self.qpos[q_start + 2, i_b],
+                            self.qpos[q_start + 3, i_b],
+                        ],
+                        dt=gs.ti_float,
                     )
+                    quat = gu.ti_transform_quat_by_quat(qloc, quat)
+                    pos = self.joints_state[i_j, i_b].xanchor - gu.ti_transform_by_quat(j_info.pos, quat)
+                elif joint_type == gs.JOINT_TYPE.REVOLUTE:
+                    axis = self.dofs_info[dof_start].motion_ang
+                    qloc = gu.ti_rotvec_to_quat(axis * (self.qpos[q_start, i_b] - self.qpos0[q_start, i_b]))
+                    quat = gu.ti_transform_quat_by_quat(qloc, quat)
+                    pos = self.joints_state[i_j, i_b].xanchor - gu.ti_transform_by_quat(j_info.pos, quat)
+                elif joint_type == gs.JOINT_TYPE.PRISMATIC:
+                    axis = self.dofs_info[dof_start].motion_vel
+                    pos = pos + axis * (self.qpos[q_start, i_b] - self.qpos0[q_start, i_b])
+                else:
+                    print("unrecognized joint type", joint_type)
 
-                    self.links_state[i_l, i_b].j_pos = self.links_state[i_l, i_b].j_pos + j_info.pos - anchor_pos
-                    (
-                        self.links_state[i_l, i_b].j_pos,
-                        self.links_state[i_l, i_b].j_quat,
-                    ) = gu.ti_transform_pos_quat_by_trans_quat(
-                        self.links_state[i_l, i_b].j_pos, self.links_state[i_l, i_b].j_quat, l_info.pos, l_info.quat
-                    )
+            self.links_state[i_l, i_b].pos = pos
+            self.links_state[i_l, i_b].quat = quat
 
-        # joint_to_world
+    @ti.func
+    def _func_forward_velocity_entity(self, i_e, i_b):
         for i_l in range(self.entities_info[i_e].link_start, self.entities_info[i_e].link_end):
-            l_state = self.links_state[i_l, i_b]
             I_l = [i_l, i_b] if ti.static(self._options.batch_links_info) else i_l
             l_info = self.links_info[I_l]
-            i_p = l_info.parent_idx
 
-            if i_p == -1:  # root link
-                if not l_info.is_fixed:
-                    self.links_state[i_l, i_b].pos = l_state.j_pos
-                    self.links_state[i_l, i_b].quat = gu.ti_normalize(l_state.j_quat)
+            cvel_vel = ti.Vector.zero(gs.ti_float, 3)
+            cvel_ang = ti.Vector.zero(gs.ti_float, 3)
+            if l_info.parent_idx >= 0:
+                cvel_vel = self.links_state[l_info.parent_idx, i_b].vel
+                cvel_ang = self.links_state[l_info.parent_idx, i_b].ang
 
-                self.links_state[i_l, i_b].ang = gu.ti_transform_by_quat(l_state.j_ang, l_state.quat)
-                self.links_state[i_l, i_b].vel = l_state.j_vel
+            for i_j in range(l_info.joint_start, l_info.joint_end):
+                I_j = [i_j, i_b] if ti.static(self._options.batch_joints_info) else i_j
+                j_info = self.joints_info[I_j]
+                joint_type = j_info.type
+                q_start = j_info.q_start
+                dof_start = j_info.dof_start
 
-            else:
-                p = self.links_state[i_p, i_b]
-                self.links_state[i_l, i_b].pos, quat = gu.ti_transform_pos_quat_by_trans_quat(
-                    self.links_state[i_l, i_b].j_pos, self.links_state[i_l, i_b].j_quat, p.pos, p.quat
-                )
-                self.links_state[i_l, i_b].quat = gu.ti_normalize(quat)
+                if joint_type == gs.JOINT_TYPE.FREE:
+                    ## TODO: cdof_dots and cdof_ang_dot
+                    for i_3 in range(3):
+                        cvel_vel = (
+                            cvel_vel
+                            + self.dofs_state[dof_start + i_3, i_b].cdof_vel * self.dofs_state[dof_start + i_3, i_b].vel
+                        )
+                        cvel_ang = (
+                            cvel_ang
+                            + self.dofs_state[dof_start + i_3, i_b].cdof_ang * self.dofs_state[dof_start + i_3, i_b].vel
+                        )
 
-                self.links_state[i_l, i_b].ang = p.ang + gu.ti_transform_by_quat(
-                    self.links_state[i_l, i_b].j_ang, self.links_state[i_l, i_b].quat
-                )
-                self.links_state[i_l, i_b].vel = (
-                    p.vel
-                    + p.ang.cross(self.links_state[i_l, i_b].pos - p.pos)
-                    + gu.ti_transform_by_quat(self.links_state[i_l, i_b].j_vel, self.links_state[i_l, i_b].quat)
-                )
+                        (
+                            self.dofs_state[dof_start + i_3, i_b].cdofd_ang,
+                            self.dofs_state[dof_start + i_3, i_b].cdofd_vel,
+                        ) = ti.Vector.zero(gs.ti_float, 3), ti.Vector.zero(gs.ti_float, 3)
+
+                        (
+                            self.dofs_state[dof_start + i_3 + 3, i_b].cdofd_ang,
+                            self.dofs_state[dof_start + i_3 + 3, i_b].cdofd_vel,
+                        ) = gu.motion_cross_motion(
+                            cvel_ang,
+                            cvel_vel,
+                            self.dofs_state[dof_start + i_3 + 3, i_b].cdof_ang,
+                            self.dofs_state[dof_start + i_3 + 3, i_b].cdof_vel,
+                        )
+
+                    for i_3 in range(3):
+                        cvel_vel = (
+                            cvel_vel
+                            + self.dofs_state[dof_start + i_3 + 3, i_b].cdof_vel
+                            * self.dofs_state[dof_start + i_3 + 3, i_b].vel
+                        )
+                        cvel_ang = (
+                            cvel_ang
+                            + self.dofs_state[dof_start + i_3 + 3, i_b].cdof_ang
+                            * self.dofs_state[dof_start + i_3 + 3, i_b].vel
+                        )
+
+                else:
+                    for i_d in range(j_info.dof_start, j_info.dof_end):
+                        self.dofs_state[i_d, i_b].cdofd_ang, self.dofs_state[i_d, i_b].cdofd_vel = (
+                            gu.motion_cross_motion(
+                                cvel_ang,
+                                cvel_vel,
+                                self.dofs_state[i_d, i_b].cdof_ang,
+                                self.dofs_state[i_d, i_b].cdof_vel,
+                            )
+                        )
+                    for i_d in range(j_info.dof_start, j_info.dof_end):
+                        cvel_vel = cvel_vel + self.dofs_state[i_d, i_b].cdof_vel * self.dofs_state[i_d, i_b].vel
+                        cvel_ang = cvel_ang + self.dofs_state[i_d, i_b].cdof_ang * self.dofs_state[i_d, i_b].vel
+                        # print("cvel_vel", i_d, cvel_vel, self.dofs_state[i_d, i_b].vel, self.dofs_state[i_d, i_b].cdof_vel)
+
+            self.links_state[i_l, i_b].cd_vel = cvel_vel
+            self.links_state[i_l, i_b].cd_ang = cvel_ang
+            self.links_state[i_l, i_b].vel = cvel_vel
+            self.links_state[i_l, i_b].ang = cvel_ang
 
     @ti.func
     def _func_update_geoms(self, i_b):
@@ -3076,55 +3114,83 @@ class RigidSolver(Solver):
                 for i_l_ in range(self.n_awake_links[i_b]):
                     i_l = self.awake_links[i_l_, i_b]
                     I_l = [i_l, i_b] if ti.static(self._options.batch_links_info) else i_l
-                    dof_start = self.links_info[I_l].dof_start
-                    q_start = self.links_info[I_l].q_start
-                    q_end = self.links_info[I_l].q_end
 
-                    i_j = self.links_info[I_l].joint_start
-                    I_j = [i_j, i_b] if ti.static(self._options.batch_joints_info) else i_j
-                    joint_type = self.joints_info[I_j].type
+                    for i_j in range(self.links_info[I_l].joint_start, self.links_info[I_l].joint_end):
+                        dof_start = self.joints_info[I_j].dof_start
+                        q_start = self.joints_info[I_j].q_start
+                        q_end = self.joints_info[I_j].q_end
 
-                    if joint_type == gs.JOINT_TYPE.FREE:
-                        rot = ti.Vector(
-                            [
-                                self.qpos[q_start + 3, i_b],
-                                self.qpos[q_start + 4, i_b],
-                                self.qpos[q_start + 5, i_b],
-                                self.qpos[q_start + 6, i_b],
-                            ]
-                        )
-                        ang = (
-                            ti.Vector(
+                        I_j = [i_j, i_b] if ti.static(self._options.batch_joints_info) else i_j
+                        joint_type = self.joints_info[I_j].joint_type
+
+                        if joint_type == gs.JOINT_TYPE.FREE:
+                            rot = ti.Vector(
                                 [
-                                    self.dofs_state[dof_start + 3, i_b].vel,
-                                    self.dofs_state[dof_start + 4, i_b].vel,
-                                    self.dofs_state[dof_start + 5, i_b].vel,
+                                    self.qpos[q_start + 3, i_b],
+                                    self.qpos[q_start + 4, i_b],
+                                    self.qpos[q_start + 5, i_b],
+                                    self.qpos[q_start + 6, i_b],
                                 ]
                             )
-                            * self._substep_dt
-                        )
-                        qrot = gu.ti_rotvec_to_quat(ang)
-                        rot = gu.ti_transform_quat_by_quat(qrot, rot)
-                        pos = ti.Vector(
-                            [self.qpos[q_start, i_b], self.qpos[q_start + 1, i_b], self.qpos[q_start + 2, i_b]]
-                        )
-                        vel = ti.Vector(
-                            [
-                                self.dofs_state[dof_start, i_b].vel,
-                                self.dofs_state[dof_start + 1, i_b].vel,
-                                self.dofs_state[dof_start + 2, i_b].vel,
-                            ]
-                        )
-                        pos = pos + vel * self._substep_dt
-                        for j in ti.static(range(3)):
-                            self.qpos[q_start + j, i_b] = pos[j]
-                        for j in ti.static(range(4)):
-                            self.qpos[q_start + j + 3, i_b] = rot[j]
-                    else:
-                        for j in range(q_end - q_start):
-                            self.qpos[q_start + j, i_b] = (
-                                self.qpos[q_start + j, i_b] + self.dofs_state[dof_start + j, i_b].vel * self._substep_dt
+                            ang = (
+                                ti.Vector(
+                                    [
+                                        self.dofs_state[dof_start + 3, i_b].vel,
+                                        self.dofs_state[dof_start + 4, i_b].vel,
+                                        self.dofs_state[dof_start + 5, i_b].vel,
+                                    ]
+                                )
+                                * self._substep_dt
                             )
+                            qrot = gu.ti_rotvec_to_quat(ang)
+                            rot = gu.ti_transform_quat_by_quat(qrot, rot)
+                            pos = ti.Vector(
+                                [self.qpos[q_start, i_b], self.qpos[q_start + 1, i_b], self.qpos[q_start + 2, i_b]]
+                            )
+                            vel = ti.Vector(
+                                [
+                                    self.dofs_state[dof_start, i_b].vel,
+                                    self.dofs_state[dof_start + 1, i_b].vel,
+                                    self.dofs_state[dof_start + 2, i_b].vel,
+                                ]
+                            )
+                            pos = pos + vel * self._substep_dt
+                            for j in ti.static(range(3)):
+                                self.qpos[q_start + j, i_b] = pos[j]
+                            for j in ti.static(range(4)):
+                                self.qpos[q_start + j + 3, i_b] = rot[j]
+                        elif joint_type == gs.JOINT_TYPE.FIXED:
+                            pass
+                        elif joint_type == gs.JOINT_TYPE.SPHERICAL:
+                            rot = ti.Vector(
+                                [
+                                    self.qpos[q_start + 0, i_b],
+                                    self.qpos[q_start + 1, i_b],
+                                    self.qpos[q_start + 2, i_b],
+                                    self.qpos[q_start + 3, i_b],
+                                ]
+                            )
+                            ang = (
+                                ti.Vector(
+                                    [
+                                        self.dofs_state[dof_start + 3, i_b].vel,
+                                        self.dofs_state[dof_start + 4, i_b].vel,
+                                        self.dofs_state[dof_start + 5, i_b].vel,
+                                    ]
+                                )
+                                * self._substep_dt
+                            )
+                            qrot = gu.ti_rotvec_to_quat(ang)
+                            rot = gu.ti_transform_quat_by_quat(qrot, rot)
+                            for j in ti.static(range(4)):
+                                self.qpos[q_start + j, i_b] = rot[j]
+
+                        else:
+                            for j in range(q_end - q_start):
+                                self.qpos[q_start + j, i_b] = (
+                                    self.qpos[q_start + j, i_b]
+                                    + self.dofs_state[dof_start + j, i_b].vel * self._substep_dt
+                                )
 
         else:
             ti.loop_config(serialize=self._para_level < gs.PARA_LEVEL.ALL)
@@ -4008,6 +4074,7 @@ class RigidSolver(Solver):
                 l_info = self.links_info[I_l]
                 dof_start = l_info.dof_start
                 q_start = l_info.q_start
+                q_end = l_info.q_end
 
                 i_j = self.links_info[I_l].joint_start
                 I_j = [i_j, i_b] if ti.static(self._options.batch_joints_info) else i_j
