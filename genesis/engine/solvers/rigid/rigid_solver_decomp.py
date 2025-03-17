@@ -2007,22 +2007,22 @@ class RigidSolver(Solver):
                         self.dofs_state[dof_start, i_b].cdof_vel = self.joints_state[i_j, i_b].xaxis
                     elif joint_type == gs.JOINT_TYPE.SPHERICAL:
                         xmat_T = gu.ti_quat_to_R(self.links_state[i_l, i_b].quat).transpose()
-                        for i_d in range(j_info.dof_start, j_info.dof_end):
-                            self.dofs_state[i_d, i_b].cdof_ang = xmat_T[i_d - j_info.dof_start, :]
-                            self.dofs_state[i_d, i_b].cdof_vel = xmat_T[i_d - j_info.dof_start, :].cross(offset_pos)
+                        for i_d in range(dof_start, j_info.dof_end):
+                            self.dofs_state[i_d, i_b].cdof_ang = xmat_T[i_d - dof_start, :]
+                            self.dofs_state[i_d, i_b].cdof_vel = xmat_T[i_d - dof_start, :].cross(offset_pos)
                     elif joint_type == gs.JOINT_TYPE.FREE:
 
-                        for i_d in range(j_info.dof_start, j_info.dof_end + 3):
+                        for i_d in range(dof_start, j_info.dof_end + 3):
                             self.dofs_state[i_d, i_b].cdof_ang = ti.Vector.zero(gs.ti_float, 3)
                             self.dofs_state[i_d, i_b].cdof_vel = ti.Vector.zero(gs.ti_float, 3)
-                            self.dofs_state[i_d, i_b].cdof_vel[i_d - j_info.dof_start] = 1.0
+                            self.dofs_state[i_d, i_b].cdof_vel[i_d - dof_start] = 1.0
 
                         xmat_T = gu.ti_quat_to_R(self.links_state[i_l, i_b].quat).transpose()
-                        for i_d in range(j_info.dof_start + 3, j_info.dof_end + 6):
-                            self.dofs_state[i_d, i_b].cdof_ang = xmat_T[i_d - j_info.dof_start, :]
-                            self.dofs_state[i_d, i_b].cdof_vel = xmat_T[i_d - j_info.dof_start, :].cross(offset_pos)
+                        for i_d in range(dof_start + 3, j_info.dof_end + 6):
+                            self.dofs_state[i_d, i_b].cdof_ang = xmat_T[i_d - dof_start, :]
+                            self.dofs_state[i_d, i_b].cdof_vel = xmat_T[i_d - dof_start, :].cross(offset_pos)
 
-                    for i_d in range(j_info.dof_start, j_info.dof_end):
+                    for i_d in range(dof_start, j_info.dof_end):
                         self.dofs_state[i_d, i_b].cdofvel_ang = (
                             self.dofs_state[i_d, i_b].cdof_ang * self.dofs_state[i_d, i_b].vel
                         )
@@ -2182,6 +2182,7 @@ class RigidSolver(Solver):
     @ti.func
     def _func_transform_COM(self, i_b):
         self._func_COM_links(i_b)
+        # TODO: Already computed in forward dynamics, but maybe here is a better place
         # self._func_COM_cd(i_b)
         # self._func_COM_cdofd(i_b)
 
@@ -2240,7 +2241,6 @@ class RigidSolver(Solver):
                 elif joint_type == gs.JOINT_TYPE.FIXED:
                     pass
                 else:
-                    ## TODO: get axis from jnt_axis
                     axis = ti.Vector([0.0, 0.0, 1.0], dt=gs.ti_float)
                     if joint_type == gs.JOINT_TYPE.REVOLUTE:
                         axis = self.dofs_info[dof_start].motion_ang
@@ -2352,7 +2352,7 @@ class RigidSolver(Solver):
                         )
 
                 else:
-                    for i_d in range(j_info.dof_start, j_info.dof_end):
+                    for i_d in range(dof_start, j_info.dof_end):
                         self.dofs_state[i_d, i_b].cdofd_ang, self.dofs_state[i_d, i_b].cdofd_vel = (
                             gu.motion_cross_motion(
                                 cvel_ang,
@@ -2361,10 +2361,9 @@ class RigidSolver(Solver):
                                 self.dofs_state[i_d, i_b].cdof_vel,
                             )
                         )
-                    for i_d in range(j_info.dof_start, j_info.dof_end):
+                    for i_d in range(dof_start, j_info.dof_end):
                         cvel_vel = cvel_vel + self.dofs_state[i_d, i_b].cdof_vel * self.dofs_state[i_d, i_b].vel
                         cvel_ang = cvel_ang + self.dofs_state[i_d, i_b].cdof_ang * self.dofs_state[i_d, i_b].vel
-                        # print("cvel_vel", i_d, cvel_vel, self.dofs_state[i_d, i_b].vel, self.dofs_state[i_d, i_b].cdof_vel)
 
             self.links_state[i_l, i_b].cd_vel = cvel_vel
             self.links_state[i_l, i_b].cd_ang = cvel_ang
@@ -4074,7 +4073,6 @@ class RigidSolver(Solver):
                 l_info = self.links_info[I_l]
                 dof_start = l_info.dof_start
                 q_start = l_info.q_start
-                q_end = l_info.q_end
 
                 i_j = self.links_info[I_l].joint_start
                 I_j = [i_j, i_b] if ti.static(self._options.batch_joints_info) else i_j
