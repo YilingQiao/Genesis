@@ -2,6 +2,7 @@ import os
 from enum import Enum
 
 import pytest
+import numpy as np
 
 import mujoco
 import genesis as gs
@@ -77,7 +78,7 @@ def mj_sim(xml_path, gs_solver, gs_integrator):
     mj_sim.model.opt.solver = mj_solver
     mj_sim.model.opt.integrator = mj_integrator
     mj_sim.model.opt.cone = mujoco.mjtCone.mjCONE_PYRAMIDAL
-    # mj_sim.model.opt.disableflags &= mujoco.mjtDisableBit.mjDSBL_EULERDAMP
+    mj_sim.model.opt.disableflags &= ~np.uint32(mujoco.mjtDisableBit.mjDSBL_EULERDAMP)
     mj_sim.data = mujoco.MjData(mj_sim.model)
 
     return MjSim(mj_sim.model, mj_sim.data)
@@ -85,7 +86,7 @@ def mj_sim(xml_path, gs_solver, gs_integrator):
 
 @pytest.fixture
 def gs_sim(xml_path, gs_solver, gs_integrator, show_viewer, mj_sim):
-    gs_sim.scene = gs.Scene(
+    scene = gs.Scene(
         viewer_options=gs.options.ViewerOptions(
             camera_pos=(3, -1, 1.5),
             camera_lookat=(0.0, 0.0, 0.5),
@@ -113,10 +114,10 @@ def gs_sim(xml_path, gs_solver, gs_integrator, show_viewer, mj_sim):
         show_viewer=show_viewer,
         show_FPS=False,
     )
-    gs_robot = gs_sim.scene.add_entity(
+    gs_robot = scene.add_entity(
         gs.morphs.MJCF(file=xml_path),
         visualize_contact=False,
     )
-    gs_sim.scene.build()
+    scene.build()
 
-    return gs_sim.scene.sim
+    return scene.sim

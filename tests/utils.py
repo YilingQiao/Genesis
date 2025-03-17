@@ -117,23 +117,12 @@ def _gs_search_by_link_names(
         raise ValueError(f"Fail to find link indices for {link_names}")
 
 
-def check_mujoco_model_consistency(
+def _get_model_mappings(
     gs_sim,
     mj_sim,
-    joint_names: list[str] | None = None,
-    body_names: list[str] | None = None,
-    atol: float = 1e-9,
+    joint_names: list[str],
+    body_names: list[str],
 ):
-    # Extract joint and dof mapping from names to indices
-    if joint_names is None:
-        joint_names = [
-            joint.name
-            for entity in gs_sim.entities
-            for joint in chain.from_iterable(entity.joints)
-            if joint.name != "world" and joint.type != gs.JOINT_TYPE.FIXED
-        ]
-    if body_names is None:
-        body_names = [body.name for entity in gs_sim.entities for body in entity.links]
     act_names: list[str] = []
     mj_dof_idcs: list[int] = []
     mj_act_idcs: list[int] = []
@@ -161,6 +150,20 @@ def check_mujoco_model_consistency(
     gs_dof_idcs = _gs_search_by_joint_names(gs_sim.scene, joint_names)
     gs_act_idcs = _gs_search_by_joint_names(gs_sim.scene, act_names)
     gs_body_idcs = _gs_search_by_link_names(gs_sim.scene, body_names)
+    return (gs_body_idcs, gs_dof_idcs, gs_act_idcs), (mj_body_idcs, mj_dof_idcs, mj_act_idcs)
+
+
+def check_mujoco_model_consistency(
+    gs_sim,
+    mj_sim,
+    joint_names: list[str],
+    body_names: list[str],
+    atol: float = 1e-9,
+):
+    # Get mapping between Mujoco and Genesis
+    (gs_body_idcs, gs_dof_idcs, gs_act_idcs), (mj_body_idcs, mj_dof_idcs, mj_act_idcs) = _get_model_mappings(
+        gs_sim, mj_sim, joint_names, body_names
+    )
 
     # solver
     gs_gravity = gs_sim.rigid_solver.scene.gravity
@@ -169,6 +172,7 @@ def check_mujoco_model_consistency(
     assert mj_sim.model.opt.timestep == gs_sim.rigid_solver.substep_dt
     assert mj_sim.model.opt.tolerance == gs_sim.rigid_solver._options.tolerance
     assert mj_sim.model.opt.iterations == gs_sim.rigid_solver._options.iterations
+    assert not (mj_sim.model.opt.disableflags & mujoco.mjtDisableBit.mjDSBL_EULERDAMP)
 
     mj_solver = mujoco.mjtSolver(mj_sim.model.opt.solver)
     if mj_solver.name == "mjSOL_PGS":
@@ -263,36 +267,51 @@ def check_mujoco_model_consistency(
     np.testing.assert_allclose(gs_kv[gs_act_idcs], mj_kv[mj_act_idcs], atol=atol)
 
 
-def check_mujoco_data_consistency(gs_sim, mj_sim, is_first_step, qvel_prev, atol: float = 1e-9):
+def check_mujoco_data_consistency(
+    gs_sim,
+    mj_sim,
+    joint_names: list[str],
+    body_names: list[str],
+    is_first_step=False,
+    qvel_prev=None,
+    atol: float = 1e-9,
+):
+    # Get mapping between Mujoco and Genesis
+    (gs_body_idcs, gs_dof_idcs, gs_act_idcs), (mj_body_idcs, mj_dof_idcs, mj_act_idcs) = _get_model_mappings(
+        gs_sim, mj_sim, joint_names, body_names
+    )
+
     # crb
-    gs_crb_inertial = gs_sim.rigid_solver.links_state.crb_inertial.to_numpy()[:-1, 0].reshape([-1, 9])[
+    gs_crb_inertial = gs_sim.rigid_solver.links_state.crb_inertial.to_numpy()[:, 0].reshape([-1, 9])[
         :, [0, 4, 8, 1, 2, 5]
     ]
-    mj_crb_inertial = mj_sim.data.crb[1:, :6]  # upper-triangular part
-    np.testing.assert_allclose(gs_crb_inertial, mj_crb_inertial, atol=atol)
-    gs_crb_pos = gs_sim.rigid_solver.links_state.crb_pos.to_numpy()[:-1, 0]
-    mj_crb_pos = mj_sim.data.crb[1:, 6:9]
-    np.testing.assert_allclose(gs_crb_pos, mj_crb_pos, atol=atol)
-    gs_crb_mass = gs_sim.rigid_solver.links_state.crb_mass.to_numpy()[:-1, 0]
-    mj_crb_mass = mj_sim.data.crb[1:, 9]
-    np.testing.assert_allclose(gs_crb_mass, mj_crb_mass, atol=atol)
+    mj_crb_inertial = mj_sim.data.crb[:, :6]  # upper-triangular part
+    np.testing.assert_allclose(gs_crb_inertial[gs_body_idcs], mj_crb_inertial[mj_body_idcs], atol=atol)
+    gs_crb_pos = gs_sim.rigid_solver.links_state.crb_pos.to_numpy()[:, 0]
+    mj_crb_pos = mj_sim.data.crb[:, 6:9]
+    np.testing.assert_allclose(gs_crb_pos[gs_body_idcs], mj_crb_pos[mj_body_idcs], atol=atol)
+    gs_crb_mass = gs_sim.rigid_solver.links_state.crb_mass.to_numpy()[:, 0]
+    mj_crb_mass = mj_sim.data.crb[:, 9]
+    np.testing.assert_allclose(gs_crb_mass[gs_body_idcs], mj_crb_mass[mj_body_idcs], atol=atol)
 
     gs_mass_mat_damped = gs_sim.rigid_solver.mass_mat.to_numpy()[:, :, 0]
     mj_mass_mat_damped = np.zeros((mj_sim.model.nv, mj_sim.model.nv))
     mujoco.mj_fullM(mj_sim.model, mj_mass_mat_damped, mj_sim.data.qM)
-    np.testing.assert_allclose(gs_mass_mat_damped, mj_mass_mat_damped, atol=atol)
+    np.testing.assert_allclose(
+        gs_mass_mat_damped[gs_dof_idcs][:, gs_dof_idcs], mj_mass_mat_damped[mj_dof_idcs][:, mj_dof_idcs], atol=atol
+    )
 
     gs_meaninertia = gs_sim.rigid_solver.meaninertia.to_numpy()[0]
     mj_meaninertia = mj_sim.model.stat.meaninertia
     np.testing.assert_allclose(gs_meaninertia, mj_meaninertia, atol=atol)
 
     # FIXME: Why this check is not passing???
-    gs_cd_vel = gs_sim.rigid_solver.links_state.cd_vel.to_numpy()[:-1, 0]
-    mj_cd_vel = mj_sim.data.cvel[1:, :3]
-    # np.testing.assert_allclose(gs_cd_vel, mj_cd_vel, atol=atol)
-    gs_cd_ang = gs_sim.rigid_solver.links_state.cd_ang.to_numpy()[:-1, 0]
-    mj_cd_ang = mj_sim.data.cvel[1:, 3:]
-    # np.testing.assert_allclose(gs_cd_ang, mj_cd_ang, atol=atol)
+    gs_cd_vel = gs_sim.rigid_solver.links_state.cd_vel.to_numpy()[:, 0]
+    mj_cd_vel = mj_sim.data.cvel[:, :3]
+    # np.testing.assert_allclose(gs_cd_vel[gs_body_idcs], mj_cd_vel[mj_dof_idcs], atol=atol)
+    gs_cd_ang = gs_sim.rigid_solver.links_state.cd_ang.to_numpy()[:, 0]
+    mj_cd_ang = mj_sim.data.cvel[:, 3:]
+    # np.testing.assert_allclose(gs_cd_ang[gs_body_idcs], mj_cd_ang[mj_dof_idcs], atol=atol)
 
     gs_qfrc_bias = gs_sim.rigid_solver.dofs_state.qf_bias.to_numpy()[:, 0]
     mj_qfrc_bias = mj_sim.data.qfrc_bias
@@ -406,44 +425,64 @@ def check_mujoco_data_consistency(gs_sim, mj_sim, is_first_step, qvel_prev, atol
     # ------------------------------------------------------------------------
     mujoco.mj_fwdPosition(mj_sim.model, mj_sim.data)
 
-    gs_xpos = gs_sim.rigid_solver.links_state.pos.to_numpy()[:-1, 0]
-    mj_xpos = mj_sim.data.xpos[1:]
-    np.testing.assert_allclose(gs_xpos, mj_xpos, atol=atol)
+    gs_xipos = gs_sim.rigid_solver.links_state.i_pos.to_numpy()[:, 0]
+    mj_xipos = mj_sim.data.xipos - mj_sim.data.subtree_com[0]
+    np.testing.assert_allclose(gs_xipos[gs_body_idcs], mj_xipos[mj_body_idcs], atol=atol)
+
+    gs_xpos = gs_sim.rigid_solver.links_state.pos.to_numpy()[:, 0]
+    mj_xpos = mj_sim.data.xpos
+    np.testing.assert_allclose(gs_xpos[gs_body_idcs], mj_xpos[mj_body_idcs], atol=atol)
 
     gs_cdof_vel = gs_sim.rigid_solver.dofs_state.cdof_vel.to_numpy()[:, 0]
     mj_cdof_vel = mj_sim.data.cdof[:, 3:]
-    np.testing.assert_allclose(gs_cdof_vel, mj_cdof_vel, atol=atol)
+    np.testing.assert_allclose(gs_cdof_vel[gs_dof_idcs], mj_cdof_vel[mj_dof_idcs], atol=atol)
     gs_cdof_ang = gs_sim.rigid_solver.dofs_state.cdof_ang.to_numpy()[:, 0]
     mj_cdof_ang = mj_sim.data.cdof[:, :3]
-    np.testing.assert_allclose(gs_cdof_ang, mj_cdof_ang, atol=atol)
+    np.testing.assert_allclose(gs_cdof_ang[gs_dof_idcs], mj_cdof_ang[mj_dof_idcs], atol=atol)
 
     # cinr
     gs_cinr_inertial = gs_sim.rigid_solver.links_state.cinr_inertial.to_numpy()[:-1, 0].reshape([-1, 9])[
         :, [0, 4, 8, 1, 2, 5]
     ]
-    mj_cinr_inertial = mj_sim.data.cinert[1:, :6]  # upper-triangular part
-    np.testing.assert_allclose(gs_cinr_inertial, mj_cinr_inertial, atol=atol)
-    gs_cinr_pos = gs_sim.rigid_solver.links_state.cinr_pos.to_numpy()[:-1, 0]
-    mj_cinr_pos = mj_sim.data.cinert[1:, 6:9]
-    np.testing.assert_allclose(gs_cinr_pos, mj_cinr_pos, atol=atol)
-    gs_cinr_mass = gs_sim.rigid_solver.links_state.cinr_mass.to_numpy()[:-1, 0]
-    mj_cinr_mass = mj_sim.data.cinert[1:, 9]
-    np.testing.assert_allclose(gs_cinr_mass, mj_cinr_mass, atol=atol)
+    mj_cinr_inertial = mj_sim.data.cinert[:, :6]  # upper-triangular part
+    np.testing.assert_allclose(gs_cinr_inertial[gs_body_idcs], mj_cinr_inertial[mj_body_idcs], atol=atol)
+    gs_cinr_pos = gs_sim.rigid_solver.links_state.cinr_pos.to_numpy()[:, 0]
+    mj_cinr_pos = mj_sim.data.cinert[:, 6:9]
+    np.testing.assert_allclose(gs_cinr_pos[gs_body_idcs], mj_cinr_pos[mj_body_idcs], atol=atol)
+    gs_cinr_mass = gs_sim.rigid_solver.links_state.cinr_mass.to_numpy()[:, 0]
+    mj_cinr_mass = mj_sim.data.cinert[:, 9]
+    np.testing.assert_allclose(gs_cinr_mass[gs_body_idcs], mj_cinr_mass[mj_body_idcs], atol=atol)
 
 
 def simulate_and_check_mujoco_consistency(gs_sim, mj_sim, qpos=None, qvel=None, *, num_steps):
-    check_mujoco_model_consistency(gs_sim, mj_sim)
+    # Extract joint and dof mapping from names to indices
+    joint_names = [
+        joint.name
+        for entity in gs_sim.entities
+        for joint in chain.from_iterable(entity.joints)
+        if joint.name != "world" and joint.type != gs.JOINT_TYPE.FIXED
+    ]
+    body_names = [body.name for entity in gs_sim.entities for body in entity.links if body.name != "world"]
 
+    # Make sure that "static" model information are matching
+    check_mujoco_model_consistency(gs_sim, mj_sim, joint_names, body_names)
+
+    # Initialize the simulation
     init_simulators(gs_sim, mj_sim, qpos, qvel)
 
+    # Run the simulation for a few steps
     qvel_prev = None
     for i in range(num_steps):
+        # Make sure that all "dynamic" quantities are matching before stepping
         is_first_step = i == 0
-        check_mujoco_data_consistency(gs_sim, mj_sim, is_first_step, qvel_prev)
+        check_mujoco_data_consistency(gs_sim, mj_sim, joint_names, body_names, is_first_step, qvel_prev)
 
+        # Keep Mujoco and Genesis simulation in sync to avoid drift over time
         mj_sim.data.qpos[:] = gs_sim.rigid_solver.qpos.to_numpy()[:, 0]
         mj_sim.data.qvel[:] = gs_sim.rigid_solver.dofs_state.vel.to_numpy()[:, 0]
         qvel_prev = mj_sim.data.qvel.copy()
+
+        # Do a single simulation step (eventually with substeps for Genesis)
         mujoco.mj_step(mj_sim.model, mj_sim.data)
         gs_sim.scene.step()
         if gs_sim.scene.visualizer:
