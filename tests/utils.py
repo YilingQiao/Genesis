@@ -28,8 +28,8 @@ def init_simulators(gs_sim, mj_sim, qpos=None, qvel=None):
         gs_sim.scene.visualizer.update()
 
     mujoco.mj_resetData(mj_sim.model, mj_sim.data)
-    mj_sim.data.qpos[:] = qpos
-    mj_sim.data.qvel[:] = qvel
+    mj_sim.data.qpos[:] = gs_sim.rigid_solver.qpos.to_numpy()[:, 0]
+    mj_sim.data.qvel[:] = gs_sim.rigid_solver.dofs_state.vel.to_numpy()[:, 0]
     mujoco.mj_forward(mj_sim.model, mj_sim.data)
 
 
@@ -134,7 +134,9 @@ def check_mujoco_model_consistency(
         ]
     if body_names is None:
         body_names = [body.name for entity in gs_sim.entities for body in entity.links]
+    act_names: list[str] = []
     mj_dof_idcs: list[int] = []
+    mj_act_idcs: list[int] = []
     for joint_name in joint_names:
         mj_joint_j = mj_sim.model.joint(joint_name)
         mj_type_j = mj_sim.model.jnt_type[mj_joint_j.id]
@@ -150,8 +152,14 @@ def check_mujoco_model_consistency(
             assert False
         mj_dof_start_j = mj_sim.model.jnt_dofadr[mj_joint_j.id]
         mj_dof_idcs += range(mj_dof_start_j, mj_dof_start_j + n_dofs_j)
+        if (mj_joint_j.id == mj_sim.model.actuator_trnid[:, 0]).any():
+            act_names.append(joint_name)
+            ((act_id,),) = np.nonzero(mj_joint_j.id == mj_sim.model.actuator_trnid[:, 0])
+            # TODO: assuming 1DoF actuators
+            mj_act_idcs.append(act_id)
     mj_body_idcs = [mj_sim.model.body(body_name).id for body_name in body_names]
     gs_dof_idcs = _gs_search_by_joint_names(gs_sim.scene, joint_names)
+    gs_act_idcs = _gs_search_by_joint_names(gs_sim.scene, act_names)
     gs_body_idcs = _gs_search_by_link_names(gs_sim.scene, body_names)
 
     # solver
@@ -242,45 +250,20 @@ def check_mujoco_model_consistency(
 
     # actuator (position control)
     for v in mj_sim.model.actuator_dyntype:
-        assert mujoco.mjtDyn(v) == mujoco.mjtDyn.mjDYN_NONE
+        assert v == mujoco.mjtDyn.mjDYN_NONE
     for v in mj_sim.model.actuator_biastype:
-        assert mujoco.mjtBias(v) == mujoco.mjtBias.mjBIAS_AFFINE
+        assert v in (mujoco.mjtBias.mjBIAS_AFFINE, mujoco.mjtBias.mjBIAS_NONE)
 
-    # FIXME: kp/kv are defined for all DoFs in Genesis, only actuated joints in Mujoco
-    assert (mj_sim.model.actuator_biastype == mujoco.mjtBias.mjBIAS_AFFINE).all()
-    mj_kp = -mj_sim.model.actuator_biasprm[:, 1]  # NOTE: not considering gear
-    mj_kv = -mj_sim.model.actuator_biasprm[:, 2]
+    # NOTE: not considering gear
     gs_kp = gs_sim.rigid_solver.dofs_info.kp.to_numpy()
     gs_kv = gs_sim.rigid_solver.dofs_info.kv.to_numpy()
-    # np.testing.assert_allclose(gs_kp[gs_dof_idcs], mj_kp[mj_act_idcs], atol=atol)
-    # np.testing.assert_allclose(gs_kv[gs_dof_idcs], mj_kv[mj_act_idcs], atol=atol)
-
-
-def _mj_get_mass_matrix_from_sparse(mj_model, mj_data):
-    is_, js, madr_ijs = [], [], []
-    for i in range(mj_model.nv):
-        madr_ij, j = mj_model.dof_Madr[i], i
-        while True:
-            madr_ij, j = madr_ij + 1, mj_model.dof_parentid[j]
-            if j == -1:
-                break
-            is_, js, madr_ijs = (
-                is_ + [i],
-                js + [j],
-                madr_ijs + [madr_ij],
-            )
-    i, j, madr_ij = (np.array(x, dtype=np.int32) for x in (is_, js, madr_ijs))
-    mat = np.zeros((mj_model.nv, mj_model.nv))
-    mat[i, j] = mj_data.qM[madr_ij]
-    mat = np.diag(mj_data.qM[np.array(mj_model.dof_Madr)]) + mat + mat.T
-    return mat
+    mj_kp = -mj_sim.model.actuator_biasprm[:, 1]
+    mj_kv = -mj_sim.model.actuator_biasprm[:, 2]
+    np.testing.assert_allclose(gs_kp[gs_act_idcs], mj_kp[mj_act_idcs], atol=atol)
+    np.testing.assert_allclose(gs_kv[gs_act_idcs], mj_kv[mj_act_idcs], atol=atol)
 
 
 def check_mujoco_data_consistency(gs_sim, mj_sim, is_first_step, qvel_prev, atol: float = 1e-9):
-    gs_meaninertia = gs_sim.rigid_solver.meaninertia.to_numpy()[0]
-    mj_meaninertia = mj_sim.model.stat.meaninertia
-    np.testing.assert_allclose(gs_meaninertia, mj_meaninertia, atol=atol)
-
     # crb
     gs_crb_inertial = gs_sim.rigid_solver.links_state.crb_inertial.to_numpy()[:-1, 0].reshape([-1, 9])[
         :, [0, 4, 8, 1, 2, 5]
@@ -295,8 +278,13 @@ def check_mujoco_data_consistency(gs_sim, mj_sim, is_first_step, qvel_prev, atol
     np.testing.assert_allclose(gs_crb_mass, mj_crb_mass, atol=atol)
 
     gs_mass_mat_damped = gs_sim.rigid_solver.mass_mat.to_numpy()[:, :, 0]
-    mj_mass_mat_damped = _mj_get_mass_matrix_from_sparse(mj_sim.model, mj_sim.data)
+    mj_mass_mat_damped = np.zeros((mj_sim.model.nv, mj_sim.model.nv))
+    mujoco.mj_fullM(mj_sim.model, mj_mass_mat_damped, mj_sim.data.qM)
     np.testing.assert_allclose(gs_mass_mat_damped, mj_mass_mat_damped, atol=atol)
+
+    gs_meaninertia = gs_sim.rigid_solver.meaninertia.to_numpy()[0]
+    mj_meaninertia = mj_sim.model.stat.meaninertia
+    np.testing.assert_allclose(gs_meaninertia, mj_meaninertia, atol=atol)
 
     # FIXME: Why this check is not passing???
     gs_cd_vel = gs_sim.rigid_solver.links_state.cd_vel.to_numpy()[:-1, 0]
