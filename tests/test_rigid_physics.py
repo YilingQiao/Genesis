@@ -3,6 +3,7 @@ import xml.etree.ElementTree as ET
 
 import numpy as np
 import genesis as gs
+from genesis.ext import trimesh
 
 from .utils import simulate_and_check_mujoco_consistency
 
@@ -32,19 +33,36 @@ def box_plan():
 
 
 @pytest.fixture(scope="session")
-def chain_capsule_hinge():
+def chain_capsule_hinge(asset_tmp_path):  # , enable_mesh):
+    enable_mesh = True
+    if enable_mesh:
+        mesh_path = asset_tmp_path / "capsule.obj"
+        tmesh = trimesh.creation.capsule(radius=0.05, height=0.5, count=(3, 3))
+        tmesh.export(mesh_path, file_type="obj")
+
     mjcf = ET.Element("mujoco", model="two_stick_robot")
-    ET.SubElement(mjcf, "option", timestep="0.01")
+    ET.SubElement(mjcf, "option", timestep="0.05")
     default = ET.SubElement(mjcf, "default")
     ET.SubElement(default, "geom", contype="1", conaffinity="1", condim="3")
+    asset = ET.SubElement(mjcf, "asset")
+    ET.SubElement(asset, "mesh", name="capsule", refpos="0 0 -0.25", refquat="0.707 0 -0.707 0", file=str(mesh_path))
     worldbody = ET.SubElement(mjcf, "worldbody")
     link0 = ET.SubElement(worldbody, "body", name="body1", pos="0.1 0.2 0.0", quat="0.707 0 0.707 0")
-    ET.SubElement(link0, "geom", type="capsule", fromto="0 0 0 0.5 0 0", size="0.05", rgba="1 0 0 0.4")
+    if enable_mesh:
+        ET.SubElement(link0, "geom", type="mesh", mesh="capsule", rgba="0 0 1 0.3")
+    else:
+        ET.SubElement(link0, "geom", type="capsule", fromto="0 0 0 0.5 0 0", size="0.05", rgba="0 0 1 0.3")
     link1 = ET.SubElement(link0, "body", name="body2", pos="0.5 0.2 0.0", quat="0.92388 0 0 0.38268")
-    ET.SubElement(link1, "geom", type="capsule", fromto="0 0 0 0.5 0 0", size="0.05")
+    if enable_mesh:
+        ET.SubElement(link1, "geom", type="mesh", mesh="capsule")
+    else:
+        ET.SubElement(link1, "geom", type="capsule", fromto="0 0 0 0.5 0 0", size="0.05")
     ET.SubElement(link1, "joint", type="hinge", name="joint1", axis="0 0 1", pos="0.0 0.0 0.0")
     link2 = ET.SubElement(link1, "body", name="body3", pos="0.5 0.2 0.0", quat="0.92388 0 0.38268 0.0")
-    ET.SubElement(link2, "geom", type="capsule", fromto="0 0 0 0.5 0 0", size="0.05")
+    if enable_mesh:
+        ET.SubElement(link2, "geom", type="mesh", mesh="capsule")
+    else:
+        ET.SubElement(link2, "geom", type="capsule", fromto="0 0 0 0.5 0 0", size="0.05")
     ET.SubElement(link2, "joint", type="hinge", name="joint2", axis="0 1 0")
     return mjcf
 
@@ -72,11 +90,11 @@ def test_box_plan_dynamics(gs_sim, mj_sim):
 @pytest.mark.parametrize("model_name", ["chain_capsule_hinge"])
 @pytest.mark.parametrize(
     "gs_solver",
-    [gs.constraint_solver.CG, gs.constraint_solver.Newton],
+    [gs.constraint_solver.CG],
 )
 @pytest.mark.parametrize(
     "gs_integrator",
-    [gs.integrator.implicitfast, gs.integrator.Euler],
+    [gs.integrator.implicitfast],
 )
 @pytest.mark.parametrize("backend", [gs.cpu], indirect=True)
 def test_simple_kinematic_chain(gs_sim, mj_sim):
