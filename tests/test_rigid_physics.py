@@ -79,9 +79,13 @@ def test_box_plan_dynamics(gs_sim, mj_sim):
     [gs.integrator.implicitfast, gs.integrator.Euler],
 )
 @pytest.mark.parametrize("backend", [gs.cpu], indirect=True)
-def test_single_joint_1dof_chain(gs_sim, mj_sim):
-    # TODO: Using procedurally generated capsule to avoid
-    (gs_robot,) = gs_sim.entities
-    qpos = np.zeros((gs_robot.n_dofs,))
-    qvel = np.zeros((gs_robot.n_dofs,))
-    simulate_and_check_mujoco_consistency(gs_sim, mj_sim, qpos, qvel, num_steps=500)
+def test_simple_kinematic_chain(gs_sim, mj_sim):
+    simulate_and_check_mujoco_consistency(gs_sim, mj_sim, num_steps=500)
+
+
+@pytest.mark.parametrize("xml_path", ["xml/walker.xml"])
+@pytest.mark.parametrize("gs_solver", [gs.constraint_solver.CG])
+@pytest.mark.parametrize("gs_integrator", [gs.integrator.implicitfast])
+@pytest.mark.parametrize("backend", [gs.cpu], indirect=True)
+def test_walker(gs_sim, mj_sim):
+    simulate_and_check_mujoco_consistency(gs_sim, mj_sim, num_steps=500)

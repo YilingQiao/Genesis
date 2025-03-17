@@ -13,12 +13,14 @@ class MjSim:
     data: mujoco.MjData
 
 
-def init_simulators(gs_sim, mj_sim, qpos, qvel):
+def init_simulators(gs_sim, mj_sim, qpos=None, qvel=None):
     (gs_robot,) = gs_sim.entities
 
     gs_sim.scene.reset()
-    gs_robot.set_qpos(qpos)
-    gs_robot.set_dofs_velocity(qvel)
+    if qpos is not None:
+        gs_robot.set_qpos(qpos)
+    if qvel is not None:
+        gs_robot.set_dofs_velocity(qvel)
     # TODO: This should be moved in `set_state`, `set_qpos`, `set_dofs_position`, `set_dofs_velocity`
     gs_sim.rigid_solver._kernel_forward_dynamics()
     gs_sim.rigid_solver._func_constraint_force()
@@ -441,7 +443,7 @@ def check_mujoco_data_consistency(gs_sim, mj_sim, is_first_step, qvel_prev, atol
     np.testing.assert_allclose(gs_cinr_mass, mj_cinr_mass, atol=atol)
 
 
-def simulate_and_check_mujoco_consistency(gs_sim, mj_sim, qpos, qvel, num_steps):
+def simulate_and_check_mujoco_consistency(gs_sim, mj_sim, qpos=None, qvel=None, *, num_steps):
     check_mujoco_model_consistency(gs_sim, mj_sim)
 
     init_simulators(gs_sim, mj_sim, qpos, qvel)

@@ -1,8 +1,11 @@
+import os
 from enum import Enum
 
 import pytest
+
 import mujoco
 import genesis as gs
+from genesis.utils.mesh import get_assets_dir
 
 from .utils import MjSim
 
@@ -31,6 +34,11 @@ def backend(request):
             return getattr(gs.constants.backend, backend)
         return backend
     return pytestconfig.getoption("--backend")
+
+
+@pytest.fixture(scope="session")
+def asset_tmp_path(tmp_path_factory):
+    return tmp_path_factory.mktemp("assets")
 
 
 @pytest.fixture(scope="function", autouse=True)
@@ -62,10 +70,14 @@ def mj_sim(xml_path, gs_solver, gs_integrator):
     else:
         raise ValueError(f"Integrator '{gs_integrator}' not supported")
 
+    if not os.path.isabs(xml_path):
+        xml_path = os.path.join(get_assets_dir(), xml_path)
+
     mj_sim.model = mujoco.MjModel.from_xml_path(xml_path)
     mj_sim.model.opt.solver = mj_solver
     mj_sim.model.opt.integrator = mj_integrator
     mj_sim.model.opt.cone = mujoco.mjtCone.mjCONE_PYRAMIDAL
+    # mj_sim.model.opt.disableflags &= mujoco.mjtDisableBit.mjDSBL_EULERDAMP
     mj_sim.data = mujoco.MjData(mj_sim.model)
 
     return MjSim(mj_sim.model, mj_sim.data)
