@@ -13,7 +13,14 @@ class MjSim:
     data: mujoco.MjData
 
 
-def init_simulators(gs_sim, mj_sim, qpos=None, qvel=None):
+def init_simulators(gs_sim, mj_sim, joint_names, body_names, qpos=None, qvel=None):
+
+    (gs_body_idcs, gs_dof_idcs, gs_act_idcs), (mj_body_idcs, mj_dof_idcs, mj_act_idcs), mj_qpos_idcs = (
+        _get_model_mappings(gs_sim, mj_sim, joint_names, body_names)
+    )
+    qpos_gs_mj = np.array([mj_qpos_idcs.index(i) for i in range(len(mj_qpos_idcs))])
+    dof_gs_mj = np.array([mj_dof_idcs.index(i) for i in range(len(mj_dof_idcs))])
+
     (gs_robot,) = gs_sim.entities
 
     gs_sim.scene.reset()
@@ -28,8 +35,8 @@ def init_simulators(gs_sim, mj_sim, qpos=None, qvel=None):
         gs_sim.scene.visualizer.update()
 
     mujoco.mj_resetData(mj_sim.model, mj_sim.data)
-    mj_sim.data.qpos[:] = gs_sim.rigid_solver.qpos.to_numpy()[:, 0]
-    mj_sim.data.qvel[:] = gs_sim.rigid_solver.dofs_state.vel.to_numpy()[:, 0]
+    mj_sim.data.qpos[:] = gs_sim.rigid_solver.qpos.to_numpy()[qpos_gs_mj, 0]
+    mj_sim.data.qvel[:] = gs_sim.rigid_solver.dofs_state.vel.to_numpy()[dof_gs_mj, 0]
     mujoco.mj_forward(mj_sim.model, mj_sim.data)
 
 
@@ -125,22 +132,30 @@ def _get_model_mappings(
 ):
     act_names: list[str] = []
     mj_dof_idcs: list[int] = []
+    mj_qpos_idcs: list[int] = []
     mj_act_idcs: list[int] = []
     for joint_name in joint_names:
         mj_joint_j = mj_sim.model.joint(joint_name)
         mj_type_j = mj_sim.model.jnt_type[mj_joint_j.id]
         if mj_type_j == mujoco.mjtJoint.mjJNT_HINGE:
             n_dofs_j = 1
+            n_qpos_j = 1
         elif mj_type_j == mujoco.mjtJoint.mjJNT_SLIDE:
             n_dofs_j = 1
+            n_qpos_j = 1
         elif mj_type_j == mujoco.mjtJoint.mjJNT_BALL:
             n_dofs_j = 3
+            n_qpos_j = 4
         elif mj_type_j == mujoco.mjtJoint.mjJNT_FREE:
             n_dofs_j = 6
+            n_qpos_j = 7
         else:
             assert False
         mj_dof_start_j = mj_sim.model.jnt_dofadr[mj_joint_j.id]
         mj_dof_idcs += range(mj_dof_start_j, mj_dof_start_j + n_dofs_j)
+
+        mj_qpos_start_j = mj_sim.model.jnt_qposadr[mj_joint_j.id]
+        mj_qpos_idcs += range(mj_qpos_start_j, mj_qpos_start_j + n_qpos_j)
         if (mj_joint_j.id == mj_sim.model.actuator_trnid[:, 0]).any():
             act_names.append(joint_name)
             ((act_id,),) = np.nonzero(mj_joint_j.id == mj_sim.model.actuator_trnid[:, 0])
@@ -150,7 +165,7 @@ def _get_model_mappings(
     gs_dof_idcs = _gs_search_by_joint_names(gs_sim.scene, joint_names)
     gs_act_idcs = _gs_search_by_joint_names(gs_sim.scene, act_names)
     gs_body_idcs = _gs_search_by_link_names(gs_sim.scene, body_names)
-    return (gs_body_idcs, gs_dof_idcs, gs_act_idcs), (mj_body_idcs, mj_dof_idcs, mj_act_idcs)
+    return (gs_body_idcs, gs_dof_idcs, gs_act_idcs), (mj_body_idcs, mj_dof_idcs, mj_act_idcs), mj_qpos_idcs
 
 
 def check_mujoco_model_consistency(
@@ -161,8 +176,8 @@ def check_mujoco_model_consistency(
     atol: float = 1e-9,
 ):
     # Get mapping between Mujoco and Genesis
-    (gs_body_idcs, gs_dof_idcs, gs_act_idcs), (mj_body_idcs, mj_dof_idcs, mj_act_idcs) = _get_model_mappings(
-        gs_sim, mj_sim, joint_names, body_names
+    (gs_body_idcs, gs_dof_idcs, gs_act_idcs), (mj_body_idcs, mj_dof_idcs, mj_act_idcs), mj_qpos_idcs = (
+        _get_model_mappings(gs_sim, mj_sim, joint_names, body_names)
     )
 
     # solver
@@ -278,8 +293,8 @@ def check_mujoco_data_consistency(
     atol: float = 1e-9,
 ):
     # Get mapping between Mujoco and Genesis
-    (gs_body_idcs, gs_dof_idcs, gs_act_idcs), (mj_body_idcs, mj_dof_idcs, mj_act_idcs) = _get_model_mappings(
-        gs_sim, mj_sim, joint_names, body_names
+    (gs_body_idcs, gs_dof_idcs, gs_act_idcs), (mj_body_idcs, mj_dof_idcs, mj_act_idcs), mj_qpos_idcs = (
+        _get_model_mappings(gs_sim, mj_sim, joint_names, body_names)
     )
 
     # crb
@@ -308,13 +323,13 @@ def check_mujoco_data_consistency(
 
     gs_qfrc_bias = gs_sim.rigid_solver.dofs_state.qf_bias.to_numpy()[:, 0]
     mj_qfrc_bias = mj_sim.data.qfrc_bias
-    np.testing.assert_allclose(gs_qfrc_bias, mj_qfrc_bias, atol=atol)
+    np.testing.assert_allclose(gs_qfrc_bias, mj_qfrc_bias[mj_dof_idcs], atol=atol)
     gs_qfrc_passive = gs_sim.rigid_solver.dofs_state.qf_passive.to_numpy()[:, 0]
     mj_qfrc_passive = mj_sim.data.qfrc_passive
-    np.testing.assert_allclose(gs_qfrc_passive, mj_qfrc_passive, atol=atol)
+    np.testing.assert_allclose(gs_qfrc_passive, mj_qfrc_passive[mj_dof_idcs], atol=atol)
     gs_qfrc_actuator = gs_sim.rigid_solver.dofs_state.qf_applied.to_numpy()[:, 0]
     mj_qfrc_actuator = mj_sim.data.qfrc_actuator
-    np.testing.assert_allclose(gs_qfrc_actuator, mj_qfrc_actuator, atol=atol)
+    np.testing.assert_allclose(gs_qfrc_actuator, mj_qfrc_actuator[mj_dof_idcs], atol=atol)
 
     if is_first_step:
         gs_n_constraints = 0
@@ -391,7 +406,7 @@ def check_mujoco_data_consistency(
 
     gs_qfrc_all = gs_sim.rigid_solver.dofs_state.force.to_numpy()[:, 0]
     mj_qfrc_all = mj_sim.data.qfrc_smooth + mj_sim.data.qfrc_constraint
-    np.testing.assert_allclose(gs_qfrc_all, mj_qfrc_all, atol=atol)
+    np.testing.assert_allclose(gs_qfrc_all, mj_qfrc_all[mj_dof_idcs], atol=atol)
 
     # FIXME: Why this check is not passing???
     gs_qfrc_smooth = gs_sim.rigid_solver.dofs_state.qf_smooth.to_numpy()[:, 0]
@@ -400,24 +415,25 @@ def check_mujoco_data_consistency(
 
     gs_qacc_smooth = gs_sim.rigid_solver.dofs_state.acc_smooth.to_numpy()[:, 0]
     mj_qacc_smooth = mj_sim.data.qacc_smooth
-    np.testing.assert_allclose(gs_qacc_smooth, mj_qacc_smooth, atol=atol)
+    np.testing.assert_allclose(gs_qacc_smooth, mj_qacc_smooth[mj_dof_idcs], atol=atol)
 
     # Acceleration pre- VS post-implicit damping
     # gs_qacc_post = gs_sim.rigid_solver.dofs_state.acc.to_numpy()[:, 0]
     gs_qacc_pre = gs_sim.rigid_solver.constraint_solver.qacc.to_numpy()[:, 0]
     mj_qacc_pre = mj_sim.data.qacc
-    np.testing.assert_allclose(gs_qacc_pre, mj_qacc_pre, atol=atol)
+    np.testing.assert_allclose(gs_qacc_pre, mj_qacc_pre[mj_dof_idcs], atol=atol)
 
     gs_qpos = gs_sim.rigid_solver.qpos.to_numpy()[:, 0]
     mj_qpos = mj_sim.data.qpos
-    np.testing.assert_allclose(gs_qpos, mj_qpos, atol=atol)
+    np.testing.assert_allclose(gs_qpos, mj_qpos[mj_qpos_idcs], atol=atol)
     gs_qvel = gs_sim.rigid_solver.dofs_state.vel.to_numpy()[:, 0]
     mj_qvel = mj_sim.data.qvel
-    np.testing.assert_allclose(gs_qvel, mj_qvel, atol=atol)
+    np.testing.assert_allclose(gs_qvel, mj_qvel[mj_dof_idcs], atol=atol)
 
     # ------------------------------------------------------------------------
     mujoco.mj_fwdPosition(mj_sim.model, mj_sim.data)
     mujoco.mj_fwdVelocity(mj_sim.model, mj_sim.data)
+    gs_sim.rigid_solver._kernel_forward_kinematics_links_geoms(np.array([0]))
 
     gs_xipos = gs_sim.rigid_solver.links_state.i_pos.to_numpy()[:, 0]
     mj_xipos = mj_sim.data.xipos - mj_sim.data.subtree_com[0]
@@ -477,12 +493,13 @@ def simulate_and_check_mujoco_consistency(gs_sim, mj_sim, qpos=None, qvel=None, 
     check_mujoco_model_consistency(gs_sim, mj_sim, joint_names, body_names)
 
     # Initialize the simulation
-    init_simulators(gs_sim, mj_sim, qpos, qvel)
+    init_simulators(gs_sim, mj_sim, joint_names, body_names, qpos, qvel)
 
     # Run the simulation for a few steps
     qvel_prev = None
     for i in range(num_steps):
         # Make sure that all "dynamic" quantities are matching before stepping
+        print("step============================", i)
         is_first_step = i == 0
         check_mujoco_data_consistency(gs_sim, mj_sim, joint_names, body_names, is_first_step, qvel_prev)
 

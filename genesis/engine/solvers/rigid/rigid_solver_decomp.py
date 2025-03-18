@@ -1553,6 +1553,13 @@ class RigidSolver(Solver):
 
     @ti.kernel
     def _kernel_step_1(self):
+        ti.loop_config(serialize=self._para_level < gs.PARA_LEVEL.ALL)
+        for i_b in range(self._B):
+            self._func_forward_kinematics(i_b)
+            self._func_transform_COM(i_b)
+            self._func_forward_velocity(i_b)
+            self._func_update_geoms(i_b)
+
         self._func_forward_dynamics()
 
     @ti.func
@@ -1591,13 +1598,6 @@ class RigidSolver(Solver):
         if ti.static(self._integrator == gs.integrator.implicitfast):
             self._func_implicit_damping()
         self._func_integrate()
-
-        ti.loop_config(serialize=self._para_level < gs.PARA_LEVEL.ALL)
-        for i_b in range(self._B):
-            self._func_forward_kinematics(i_b)
-            self._func_transform_COM(i_b)
-            self._func_forward_velocity(i_b)
-            self._func_update_geoms(i_b)
 
         if ti.static(self._use_hibernation):
             self._func_hibernate()
@@ -2293,8 +2293,8 @@ class RigidSolver(Solver):
             cvel_vel = ti.Vector.zero(gs.ti_float, 3)
             cvel_ang = ti.Vector.zero(gs.ti_float, 3)
             if l_info.parent_idx >= 0:
-                cvel_vel = self.links_state[l_info.parent_idx, i_b].vel
-                cvel_ang = self.links_state[l_info.parent_idx, i_b].ang
+                cvel_vel = self.links_state[l_info.parent_idx, i_b].cd_vel
+                cvel_ang = self.links_state[l_info.parent_idx, i_b].cd_ang
 
             for i_j in range(l_info.joint_start, l_info.joint_end):
                 I_j = [i_j, i_b] if ti.static(self._options.batch_joints_info) else i_j
