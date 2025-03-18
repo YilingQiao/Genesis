@@ -2007,20 +2007,19 @@ class RigidSolver(Solver):
                         self.dofs_state[dof_start, i_b].cdof_vel = self.joints_state[i_j, i_b].xaxis
                     elif joint_type == gs.JOINT_TYPE.SPHERICAL:
                         xmat_T = gu.ti_quat_to_R(self.links_state[i_l, i_b].quat).transpose()
-                        for i_d in range(dof_start, j_info.dof_end):
-                            self.dofs_state[i_d, i_b].cdof_ang = xmat_T[i_d - dof_start, :]
-                            self.dofs_state[i_d, i_b].cdof_vel = xmat_T[i_d - dof_start, :].cross(offset_pos)
+                        for i in range(3):
+                            self.dofs_state[i + dof_start, i_b].cdof_ang = xmat_T[i, :]
+                            self.dofs_state[i + dof_start, i_b].cdof_vel = xmat_T[i, :].cross(offset_pos)
                     elif joint_type == gs.JOINT_TYPE.FREE:
-
-                        for i_d in range(dof_start, j_info.dof_end + 3):
-                            self.dofs_state[i_d, i_b].cdof_ang = ti.Vector.zero(gs.ti_float, 3)
-                            self.dofs_state[i_d, i_b].cdof_vel = ti.Vector.zero(gs.ti_float, 3)
-                            self.dofs_state[i_d, i_b].cdof_vel[i_d - dof_start] = 1.0
+                        for i in range(3):
+                            self.dofs_state[i + dof_start, i_b].cdof_ang = ti.Vector.zero(gs.ti_float, 3)
+                            self.dofs_state[i + dof_start, i_b].cdof_vel = ti.Vector.zero(gs.ti_float, 3)
+                            self.dofs_state[i + dof_start, i_b].cdof_vel[i] = 1.0
 
                         xmat_T = gu.ti_quat_to_R(self.links_state[i_l, i_b].quat).transpose()
-                        for i_d in range(dof_start + 3, j_info.dof_end + 6):
-                            self.dofs_state[i_d, i_b].cdof_ang = xmat_T[i_d - dof_start, :]
-                            self.dofs_state[i_d, i_b].cdof_vel = xmat_T[i_d - dof_start, :].cross(offset_pos)
+                        for i in range(3):
+                            self.dofs_state[i + dof_start + 3, i_b].cdof_ang = xmat_T[i, :]
+                            self.dofs_state[i + dof_start + 3, i_b].cdof_vel = xmat_T[i, :].cross(offset_pos)
 
                     for i_d in range(dof_start, j_info.dof_end):
                         self.dofs_state[i_d, i_b].cdofvel_ang = (
