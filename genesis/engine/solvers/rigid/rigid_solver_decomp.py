@@ -2323,6 +2323,7 @@ class RigidSolver(Solver):
                             + self.dofs_state[dof_start + i_3, i_b].cdof_ang * self.dofs_state[dof_start + i_3, i_b].vel
                         )
 
+                    for i_3 in range(3):
                         (
                             self.dofs_state[dof_start + i_3, i_b].cdofd_ang,
                             self.dofs_state[dof_start + i_3, i_b].cdofd_vel,

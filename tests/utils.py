@@ -440,6 +440,14 @@ def check_mujoco_data_consistency(
     mj_cdof_ang = mj_sim.data.cdof[:, :3]
     np.testing.assert_allclose(gs_cdof_ang[gs_dof_idcs], mj_cdof_ang[mj_dof_idcs], atol=atol)
 
+    mj_cdof_dot_ang = mj_sim.data.cdof_dot[:, :3]
+    gs_cdof_dot_ang = gs_sim.rigid_solver.dofs_state.cdofd_ang.to_numpy()[:, 0]
+    np.testing.assert_allclose(gs_cdof_dot_ang[gs_dof_idcs], mj_cdof_dot_ang[mj_dof_idcs], atol=atol)
+
+    mj_cdof_dot_vel = mj_sim.data.cdof_dot[:, 3:]
+    gs_cdof_dot_vel = gs_sim.rigid_solver.dofs_state.cdofd_vel.to_numpy()[:, 0]
+    np.testing.assert_allclose(gs_cdof_dot_vel[gs_dof_idcs], mj_cdof_dot_vel[mj_dof_idcs], atol=atol)
+
     # cinr
     gs_cinr_inertial = gs_sim.rigid_solver.links_state.cinr_inertial.to_numpy()[:-1, 0].reshape([-1, 9])[
         :, [0, 4, 8, 1, 2, 5]
