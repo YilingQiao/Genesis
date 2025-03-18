@@ -13,13 +13,8 @@ class MjSim:
     data: mujoco.MjData
 
 
-def init_simulators(gs_sim, mj_sim, joint_names, body_names, qpos=None, qvel=None):
-
-    (gs_body_idcs, gs_dof_idcs, gs_act_idcs), (mj_body_idcs, mj_dof_idcs, mj_act_idcs), mj_qpos_idcs = (
-        _get_model_mappings(gs_sim, mj_sim, joint_names, body_names)
-    )
-    qpos_gs_mj = np.array([mj_qpos_idcs.index(i) for i in range(len(mj_qpos_idcs))])
-    dof_gs_mj = np.array([mj_dof_idcs.index(i) for i in range(len(mj_dof_idcs))])
+def init_simulators(gs_sim, mj_sim, qpos=None, qvel=None):
+    _, (_, mj_q_idcs, mj_dof_idcs, _) = _get_model_mappings(gs_sim, mj_sim)
 
     (gs_robot,) = gs_sim.entities
 
@@ -35,8 +30,8 @@ def init_simulators(gs_sim, mj_sim, joint_names, body_names, qpos=None, qvel=Non
         gs_sim.scene.visualizer.update()
 
     mujoco.mj_resetData(mj_sim.model, mj_sim.data)
-    mj_sim.data.qpos[:] = gs_sim.rigid_solver.qpos.to_numpy()[qpos_gs_mj, 0]
-    mj_sim.data.qvel[:] = gs_sim.rigid_solver.dofs_state.vel.to_numpy()[dof_gs_mj, 0]
+    mj_sim.data.qpos[mj_q_idcs] = gs_sim.rigid_solver.qpos.to_numpy()[:, 0]
+    mj_sim.data.qvel[mj_dof_idcs] = gs_sim.rigid_solver.dofs_state.vel.to_numpy()[:, 0]
     mujoco.mj_forward(mj_sim.model, mj_sim.data)
 
 
@@ -52,34 +47,40 @@ def _gs_search_by_joint_names(
 
     for entity in scene.entities:
         try:
+            gs_q_idcs = dict()
             gs_dof_idcs = dict()
             valid_joint_names = []
-            for v in chain.from_iterable(entity.joints):
-                valid_joint_names.append(v.name)
-                if v.name in joint_names:
+            for joint in chain.from_iterable(entity.joints):
+                valid_joint_names.append(joint.name)
+                if joint.name in joint_names:
                     if to == "entity":
-                        gs_dof_idcs[v.name] = v
+                        gs_q_idcs[joint.name] = joint
+                        gs_dof_idcs[joint.name] = joint
                     elif to == "index":
-                        gs_dof_idcs[v.name] = v.dof_idx_local if is_local else v.dof_idx
+                        gs_q_idcs[joint.name] = joint.q_idx_local if is_local else joint.q_idx
+                        gs_dof_idcs[joint.name] = joint.d_idx_local if is_local else joint.dof_idx
                     else:
                         raise ValueError(f"Cannot recognize what ({to}) to extract for the search")
 
-            missing_joint_names = set(joint_names) - gs_dof_idcs.keys()
+            missing_joint_names = set(joint_names) - gs_q_idcs.keys()
             if len(missing_joint_names) > 0:
                 raise ValueError(
                     f"Cannot find joints `{missing_joint_names}`. Valid joints names are {valid_joint_names}"
                 )
 
             if flatten:
-                out_fl = []
+                gs_q_idcs_flat = []
+                gs_dof_idcs_flat = []
                 for k in joint_names:
-                    if isinstance(gs_dof_idcs[k], list):
-                        out_fl.extend(gs_dof_idcs[k])
+                    if isinstance(gs_q_idcs[k], list):
+                        gs_q_idcs_flat.extend(gs_q_idcs[k])
+                        gs_dof_idcs_flat.extend(gs_dof_idcs[k])
                     else:
-                        out_fl.append(gs_dof_idcs[k])
-                return out_fl
+                        gs_q_idcs_flat.append(gs_q_idcs[k])
+                        gs_dof_idcs_flat.append(gs_dof_idcs[k])
+                return (gs_q_idcs_flat, gs_dof_idcs_flat)
 
-            return gs_dof_idcs
+            return (gs_q_idcs, gs_dof_idcs)
         except ValueError:
             pass
     else:
@@ -127,56 +128,69 @@ def _gs_search_by_link_names(
 def _get_model_mappings(
     gs_sim,
     mj_sim,
-    joint_names: list[str],
-    body_names: list[str],
+    joint_names: list[str] | None = None,
+    body_names: list[str] | None = None,
 ):
+    if joint_names is None:
+        joint_names = [
+            joint.name
+            for entity in gs_sim.entities
+            for joint in chain.from_iterable(entity.joints)
+            if joint.type != gs.JOINT_TYPE.FIXED
+        ]
+    body_names = [body.name for entity in gs_sim.entities for body in entity.links if not body.is_fixed]
+
     act_names: list[str] = []
     mj_dof_idcs: list[int] = []
-    mj_qpos_idcs: list[int] = []
+    mj_q_idcs: list[int] = []
     mj_act_idcs: list[int] = []
     for joint_name in joint_names:
         mj_joint_j = mj_sim.model.joint(joint_name)
         mj_type_j = mj_sim.model.jnt_type[mj_joint_j.id]
         if mj_type_j == mujoco.mjtJoint.mjJNT_HINGE:
             n_dofs_j = 1
-            n_qpos_j = 1
+            n_q_j = 1
         elif mj_type_j == mujoco.mjtJoint.mjJNT_SLIDE:
             n_dofs_j = 1
-            n_qpos_j = 1
+            n_q_j = 1
         elif mj_type_j == mujoco.mjtJoint.mjJNT_BALL:
             n_dofs_j = 3
-            n_qpos_j = 4
+            n_q_j = 4
         elif mj_type_j == mujoco.mjtJoint.mjJNT_FREE:
             n_dofs_j = 6
-            n_qpos_j = 7
+            n_q_j = 7
         else:
             assert False
         mj_dof_start_j = mj_sim.model.jnt_dofadr[mj_joint_j.id]
         mj_dof_idcs += range(mj_dof_start_j, mj_dof_start_j + n_dofs_j)
 
-        mj_qpos_start_j = mj_sim.model.jnt_qposadr[mj_joint_j.id]
-        mj_qpos_idcs += range(mj_qpos_start_j, mj_qpos_start_j + n_qpos_j)
+        mj_q_start_j = mj_sim.model.jnt_qposadr[mj_joint_j.id]
+        mj_q_idcs += range(mj_q_start_j, mj_q_start_j + n_q_j)
         if (mj_joint_j.id == mj_sim.model.actuator_trnid[:, 0]).any():
             act_names.append(joint_name)
             ((act_id,),) = np.nonzero(mj_joint_j.id == mj_sim.model.actuator_trnid[:, 0])
             # TODO: assuming 1DoF actuators
             mj_act_idcs.append(act_id)
     mj_body_idcs = [mj_sim.model.body(body_name).id for body_name in body_names]
-    gs_dof_idcs = _gs_search_by_joint_names(gs_sim.scene, joint_names)
-    gs_act_idcs = _gs_search_by_joint_names(gs_sim.scene, act_names)
+    (gs_q_idcs, gs_dof_idcs) = _gs_search_by_joint_names(gs_sim.scene, joint_names)
+    (_, gs_act_idcs) = _gs_search_by_joint_names(gs_sim.scene, act_names)
     gs_body_idcs = _gs_search_by_link_names(gs_sim.scene, body_names)
-    return (gs_body_idcs, gs_dof_idcs, gs_act_idcs), (mj_body_idcs, mj_dof_idcs, mj_act_idcs), mj_qpos_idcs
+
+    gs_maps = (gs_body_idcs, gs_q_idcs, gs_dof_idcs, gs_act_idcs)
+    mj_maps = (mj_body_idcs, mj_q_idcs, mj_dof_idcs, mj_act_idcs)
+    return gs_maps, mj_maps
 
 
 def check_mujoco_model_consistency(
     gs_sim,
     mj_sim,
-    joint_names: list[str],
-    body_names: list[str],
+    joint_names: list[str] | None = None,
+    body_names: list[str] | None = None,
+    *,
     atol: float = 1e-9,
 ):
     # Get mapping between Mujoco and Genesis
-    (gs_body_idcs, gs_dof_idcs, gs_act_idcs), (mj_body_idcs, mj_dof_idcs, mj_act_idcs), mj_qpos_idcs = (
+    (gs_body_idcs, gs_q_idcs, gs_dof_idcs, gs_act_idcs), (mj_body_idcs, mj_q_idcs, mj_dof_idcs, mj_act_idcs) = (
         _get_model_mappings(gs_sim, mj_sim, joint_names, body_names)
     )
 
@@ -286,14 +300,14 @@ def check_mujoco_model_consistency(
 def check_mujoco_data_consistency(
     gs_sim,
     mj_sim,
-    joint_names: list[str],
-    body_names: list[str],
-    is_first_step=False,
-    qvel_prev=None,
+    joint_names: list[str] | None = None,
+    body_names: list[str] | None = None,
+    *,
+    qvel_prev: np.ndarray | None = None,
     atol: float = 1e-9,
 ):
     # Get mapping between Mujoco and Genesis
-    (gs_body_idcs, gs_dof_idcs, gs_act_idcs), (mj_body_idcs, mj_dof_idcs, mj_act_idcs), mj_qpos_idcs = (
+    (gs_body_idcs, gs_q_idcs, gs_dof_idcs, gs_act_idcs), (mj_body_idcs, mj_q_idcs, mj_dof_idcs, mj_act_idcs) = (
         _get_model_mappings(gs_sim, mj_sim, joint_names, body_names)
     )
 
@@ -331,23 +345,16 @@ def check_mujoco_data_consistency(
     mj_qfrc_actuator = mj_sim.data.qfrc_actuator
     np.testing.assert_allclose(gs_qfrc_actuator, mj_qfrc_actuator[mj_dof_idcs], atol=atol)
 
-    if is_first_step:
-        gs_n_constraints = 0
-        mj_n_constraints = 0
-    else:
-        gs_n_contacts = gs_sim.rigid_solver.collider.n_contacts.to_numpy()[0]
-        mj_n_contacts = mj_sim.data.ncon
-        assert gs_n_contacts == mj_n_contacts
-        gs_n_constraints = gs_sim.rigid_solver.constraint_solver.n_constraints.to_numpy()[0]
-        mj_n_constraints = mj_sim.data.nefc
-        assert gs_n_constraints == mj_n_constraints
+    gs_n_contacts = gs_sim.rigid_solver.collider.n_contacts.to_numpy()[0]
+    mj_n_contacts = mj_sim.data.ncon
+    assert gs_n_contacts == mj_n_contacts
+    gs_n_constraints = gs_sim.rigid_solver.constraint_solver.n_constraints.to_numpy()[0]
+    mj_n_constraints = mj_sim.data.nefc
+    assert gs_n_constraints == mj_n_constraints
 
     if gs_n_constraints:
         gs_contact_pos = gs_sim.rigid_solver.collider.contact_data.pos.to_numpy()[:gs_n_contacts, 0]
         mj_contact_pos = mj_sim.data.contact.pos
-        # gs_sim.scene.draw_debug_sphere(pos=gs_contact_pos[0], radius=0.001, color=(1, 0, 0, 1))
-        # gs_sim.scene.draw_debug_sphere(pos=mj_contact_pos[0], radius=0.001, color=(0, 1, 0, 1))
-        # gs_sim.scene.viewer._pyrender_viewer._run()
         gs_sidx = np.argsort(gs_contact_pos[:, 0])
         mj_sidx = np.argsort(mj_contact_pos[:, 0])
         np.testing.assert_allclose(gs_contact_pos[gs_sidx], mj_contact_pos[mj_sidx], atol=atol)
@@ -425,10 +432,10 @@ def check_mujoco_data_consistency(
 
     gs_qpos = gs_sim.rigid_solver.qpos.to_numpy()[:, 0]
     mj_qpos = mj_sim.data.qpos
-    np.testing.assert_allclose(gs_qpos, mj_qpos[mj_qpos_idcs], atol=atol)
+    np.testing.assert_allclose(gs_qpos[gs_q_idcs], mj_qpos[mj_q_idcs], atol=atol)
     gs_qvel = gs_sim.rigid_solver.dofs_state.vel.to_numpy()[:, 0]
     mj_qvel = mj_sim.data.qvel
-    np.testing.assert_allclose(gs_qvel, mj_qvel[mj_dof_idcs], atol=atol)
+    np.testing.assert_allclose(gs_qvel[gs_dof_idcs], mj_qvel[mj_dof_idcs], atol=atol)
 
     # ------------------------------------------------------------------------
     mujoco.mj_fwdPosition(mj_sim.model, mj_sim.data)
@@ -480,32 +487,24 @@ def check_mujoco_data_consistency(
 
 
 def simulate_and_check_mujoco_consistency(gs_sim, mj_sim, qpos=None, qvel=None, *, num_steps):
-    # Extract joint and dof mapping from names to indices
-    joint_names = [
-        joint.name
-        for entity in gs_sim.entities
-        for joint in chain.from_iterable(entity.joints)
-        if joint.name != "world" and joint.type != gs.JOINT_TYPE.FIXED
-    ]
-    body_names = [body.name for entity in gs_sim.entities for body in entity.links if body.name != "world"]
+    # Get mapping between Mujoco and Genesis
+    _, (_, mj_q_idcs, mj_dof_idcs, _) = _get_model_mappings(gs_sim, mj_sim)
 
     # Make sure that "static" model information are matching
-    check_mujoco_model_consistency(gs_sim, mj_sim, joint_names, body_names)
+    check_mujoco_model_consistency(gs_sim, mj_sim)
 
     # Initialize the simulation
-    init_simulators(gs_sim, mj_sim, joint_names, body_names, qpos, qvel)
+    init_simulators(gs_sim, mj_sim, qpos, qvel)
 
     # Run the simulation for a few steps
     qvel_prev = None
     for i in range(num_steps):
         # Make sure that all "dynamic" quantities are matching before stepping
-        print("step============================", i)
-        is_first_step = i == 0
-        check_mujoco_data_consistency(gs_sim, mj_sim, joint_names, body_names, is_first_step, qvel_prev)
+        check_mujoco_data_consistency(gs_sim, mj_sim, qvel_prev=qvel_prev)
 
         # Keep Mujoco and Genesis simulation in sync to avoid drift over time
-        mj_sim.data.qpos[:] = gs_sim.rigid_solver.qpos.to_numpy()[:, 0]
-        mj_sim.data.qvel[:] = gs_sim.rigid_solver.dofs_state.vel.to_numpy()[:, 0]
+        mj_sim.data.qpos[mj_q_idcs] = gs_sim.rigid_solver.qpos.to_numpy()[:, 0]
+        mj_sim.data.qvel[mj_dof_idcs] = gs_sim.rigid_solver.dofs_state.vel.to_numpy()[:, 0]
         qvel_prev = mj_sim.data.qvel.copy()
 
         # Do a single simulation step (eventually with substeps for Genesis)
