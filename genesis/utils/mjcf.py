@@ -235,8 +235,6 @@ def parse_geom(mj, i_g, scale, convexify, surface, xml_path):
                 [
                     [0, 0, 1],
                     [0, 0, 1],
-                    [0, 0, 1],
-                    [0, 0, 1],
                 ]
             ),
         )

@@ -173,6 +173,7 @@ def check_mujoco_model_consistency(
     assert mj_sim.model.opt.tolerance == gs_sim.rigid_solver._options.tolerance
     assert mj_sim.model.opt.iterations == gs_sim.rigid_solver._options.iterations
     assert not (mj_sim.model.opt.disableflags & mujoco.mjtDisableBit.mjDSBL_EULERDAMP)
+    assert not (mj_sim.model.opt.disableflags & mujoco.mjtDisableBit.mjDSBL_NATIVECCD)
 
     mj_solver = mujoco.mjtSolver(mj_sim.model.opt.solver)
     if mj_solver.name == "mjSOL_PGS":

@@ -106,4 +106,8 @@ def test_simple_kinematic_chain(gs_sim, mj_sim):
 @pytest.mark.parametrize("gs_integrator", [gs.integrator.implicitfast])
 @pytest.mark.parametrize("backend", [gs.cpu], indirect=True)
 def test_walker(gs_sim, mj_sim):
-    simulate_and_check_mujoco_consistency(gs_sim, mj_sim, num_steps=500)
+    (gs_robot,) = gs_sim.entities
+    qpos = np.zeros((gs_robot.n_dofs,))
+    qpos[2] += 0.5
+    qvel = np.random.rand(gs_robot.n_dofs) * 0.2
+    simulate_and_check_mujoco_consistency(gs_sim, mj_sim, qpos, qvel, num_steps=500)
