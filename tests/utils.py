@@ -305,14 +305,6 @@ def check_mujoco_data_consistency(
     mj_meaninertia = mj_sim.model.stat.meaninertia
     np.testing.assert_allclose(gs_meaninertia, mj_meaninertia, atol=atol)
 
-    # FIXME: Why this check is not passing???
-    gs_cd_vel = gs_sim.rigid_solver.links_state.cd_vel.to_numpy()[:, 0]
-    mj_cd_vel = mj_sim.data.cvel[:, :3]
-    # np.testing.assert_allclose(gs_cd_vel[gs_body_idcs], mj_cd_vel[mj_dof_idcs], atol=atol)
-    gs_cd_ang = gs_sim.rigid_solver.links_state.cd_ang.to_numpy()[:, 0]
-    mj_cd_ang = mj_sim.data.cvel[:, 3:]
-    # np.testing.assert_allclose(gs_cd_ang[gs_body_idcs], mj_cd_ang[mj_dof_idcs], atol=atol)
-
     gs_qfrc_bias = gs_sim.rigid_solver.dofs_state.qf_bias.to_numpy()[:, 0]
     mj_qfrc_bias = mj_sim.data.qfrc_bias
     np.testing.assert_allclose(gs_qfrc_bias, mj_qfrc_bias, atol=atol)
@@ -424,6 +416,7 @@ def check_mujoco_data_consistency(
 
     # ------------------------------------------------------------------------
     mujoco.mj_fwdPosition(mj_sim.model, mj_sim.data)
+    mujoco.mj_fwdVelocity(mj_sim.model, mj_sim.data)
 
     gs_xipos = gs_sim.rigid_solver.links_state.i_pos.to_numpy()[:, 0]
     mj_xipos = mj_sim.data.xipos - mj_sim.data.subtree_com[0]
@@ -432,6 +425,13 @@ def check_mujoco_data_consistency(
     gs_xpos = gs_sim.rigid_solver.links_state.pos.to_numpy()[:, 0]
     mj_xpos = mj_sim.data.xpos
     np.testing.assert_allclose(gs_xpos[gs_body_idcs], mj_xpos[mj_body_idcs], atol=atol)
+
+    gs_cd_vel = gs_sim.rigid_solver.links_state.cd_vel.to_numpy()[:, 0]
+    mj_cd_vel = mj_sim.data.cvel[:, 3:]
+    np.testing.assert_allclose(gs_cd_vel[gs_body_idcs], mj_cd_vel[mj_body_idcs], atol=atol)
+    gs_cd_ang = gs_sim.rigid_solver.links_state.cd_ang.to_numpy()[:, 0]
+    mj_cd_ang = mj_sim.data.cvel[:, :3]
+    np.testing.assert_allclose(gs_cd_ang[gs_body_idcs], mj_cd_ang[mj_body_idcs], atol=atol)
 
     gs_cdof_vel = gs_sim.rigid_solver.dofs_state.cdof_vel.to_numpy()[:, 0]
     mj_cdof_vel = mj_sim.data.cdof[:, 3:]

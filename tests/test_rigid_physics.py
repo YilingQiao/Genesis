@@ -83,7 +83,7 @@ def test_box_plan_dynamics(gs_sim, mj_sim):
     cube_quat = np.random.rand(4)
     cube_quat /= np.linalg.norm(cube_quat)
     qpos = np.concatenate((cube_pos, cube_quat))
-    qvel = np.zeros((gs_robot.n_dofs,))
+    qvel = np.random.rand(gs_robot.n_dofs) * 0.2
     simulate_and_check_mujoco_consistency(gs_sim, mj_sim, qpos, qvel, num_steps=150)
 
 
