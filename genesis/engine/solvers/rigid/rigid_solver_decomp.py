@@ -3042,6 +3042,7 @@ class RigidSolver(Solver):
                             + self.dofs_state[i_d, i_b].qf_applied
                             # + self.dofs_state[i_d, i_b].qf_actuator
                         )
+                        self.dofs_state[i_d, i_b].qf_smooth = self.dofs_state[i_d, i_b].force
 
         else:
             ti.loop_config(serialize=self._para_level < gs.PARA_LEVEL.ALL)
@@ -3060,6 +3061,7 @@ class RigidSolver(Solver):
                         + self.dofs_state[i_d, i_b].qf_applied
                         # + self.dofs_state[i_d, i_b].qf_actuator
                     )
+                    self.dofs_state[i_d, i_b].qf_smooth = self.dofs_state[i_d, i_b].force
 
     @ti.func
     def _func_compute_qacc(self):

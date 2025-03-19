@@ -107,7 +107,24 @@ def test_simple_kinematic_chain(gs_sim, mj_sim):
 @pytest.mark.parametrize("backend", [gs.cpu], indirect=True)
 def test_walker(gs_sim, mj_sim):
     (gs_robot,) = gs_sim.entities
-    qpos = np.zeros((gs_robot.n_dofs,))
-    qpos[2] += 0.5
-    qvel = np.random.rand(gs_robot.n_dofs) * 0.2
+    # qpos = np.zeros((gs_robot.n_dofs,))
+    # qpos[2] += 0.5
+    # qvel = np.random.rand(gs_robot.n_dofs) * 0.2
+
+    qpos = np.array(
+        [
+            3.03625674e-04,
+            7.15160971e-04,
+            5.00602112e-01,
+            5.44013278e-04,
+            4.22469768e-04,
+            6.46151731e-04,
+            4.38584520e-04,
+            8.76288096e-04,
+            9.47251492e-04,
+        ]
+    )
+    qvel = np.array(
+        [0.06072513, 0.14303219, 0.12042248, 0.10880266, 0.08449395, 0.12923035, 0.0877169, 0.17525762, 0.1894503]
+    )
     simulate_and_check_mujoco_consistency(gs_sim, mj_sim, qpos, qvel, num_steps=500)

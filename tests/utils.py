@@ -297,6 +297,13 @@ def check_mujoco_data_consistency(
         _get_model_mappings(gs_sim, mj_sim, joint_names, body_names)
     )
 
+    # cinert
+    gs_cinert_inertial = gs_sim.rigid_solver.links_state.cinr_inertial.to_numpy()[:, 0].reshape([-1, 9])[
+        :, [0, 4, 8, 1, 2, 5]
+    ]
+    mj_cinert_inertial = mj_sim.data.cinert[:, :6]
+    np.testing.assert_allclose(gs_cinert_inertial[gs_body_idcs], mj_cinert_inertial[mj_body_idcs], atol=atol)
+
     # crb
     gs_crb_inertial = gs_sim.rigid_solver.links_state.crb_inertial.to_numpy()[:, 0].reshape([-1, 9])[
         :, [0, 4, 8, 1, 2, 5]
@@ -392,7 +399,7 @@ def check_mujoco_data_consistency(
 
     gs_qfrc_constraint = gs_sim.rigid_solver.dofs_state.qf_constraint.to_numpy()[:, 0]
     mj_qfrc_constraint = mj_sim.data.qfrc_constraint
-    np.testing.assert_allclose(gs_qfrc_constraint, mj_qfrc_constraint, atol=atol)
+    np.testing.assert_allclose(gs_qfrc_constraint, mj_qfrc_constraint[mj_dof_idcs], atol=atol)
 
     if gs_n_constraints:
         gs_efc_force = gs_sim.rigid_solver.constraint_solver.efc_force.to_numpy()[:gs_n_constraints, 0]
@@ -429,11 +436,13 @@ def check_mujoco_data_consistency(
     gs_qvel = gs_sim.rigid_solver.dofs_state.vel.to_numpy()[:, 0]
     mj_qvel = mj_sim.data.qvel
     np.testing.assert_allclose(gs_qvel, mj_qvel[mj_dof_idcs], atol=atol)
+    print("qpos", gs_qpos)
+    print("qvel", gs_qvel)
 
     # ------------------------------------------------------------------------
-    mujoco.mj_fwdPosition(mj_sim.model, mj_sim.data)
-    mujoco.mj_fwdVelocity(mj_sim.model, mj_sim.data)
-    gs_sim.rigid_solver._kernel_forward_kinematics_links_geoms(np.array([0]))
+    # mujoco.mj_fwdPosition(mj_sim.model, mj_sim.data)
+    # mujoco.mj_fwdVelocity(mj_sim.model, mj_sim.data)
+    # gs_sim.rigid_solver._kernel_forward_kinematics_links_geoms(np.array([0]))
 
     gs_xipos = gs_sim.rigid_solver.links_state.i_pos.to_numpy()[:, 0]
     mj_xipos = mj_sim.data.xipos - mj_sim.data.subtree_com[0]
@@ -443,19 +452,68 @@ def check_mujoco_data_consistency(
     mj_xpos = mj_sim.data.xpos
     np.testing.assert_allclose(gs_xpos[gs_body_idcs], mj_xpos[mj_body_idcs], atol=atol)
 
-    gs_cd_vel = gs_sim.rigid_solver.links_state.cd_vel.to_numpy()[:, 0]
-    mj_cd_vel = mj_sim.data.cvel[:, 3:]
-    np.testing.assert_allclose(gs_cd_vel[gs_body_idcs], mj_cd_vel[mj_body_idcs], atol=atol)
-    gs_cd_ang = gs_sim.rigid_solver.links_state.cd_ang.to_numpy()[:, 0]
-    mj_cd_ang = mj_sim.data.cvel[:, :3]
-    np.testing.assert_allclose(gs_cd_ang[gs_body_idcs], mj_cd_ang[mj_body_idcs], atol=atol)
-
     gs_cdof_vel = gs_sim.rigid_solver.dofs_state.cdof_vel.to_numpy()[:, 0]
     mj_cdof_vel = mj_sim.data.cdof[:, 3:]
     np.testing.assert_allclose(gs_cdof_vel[gs_dof_idcs], mj_cdof_vel[mj_dof_idcs], atol=atol)
     gs_cdof_ang = gs_sim.rigid_solver.dofs_state.cdof_ang.to_numpy()[:, 0]
     mj_cdof_ang = mj_sim.data.cdof[:, :3]
     np.testing.assert_allclose(gs_cdof_ang[gs_dof_idcs], mj_cdof_ang[mj_dof_idcs], atol=atol)
+    print("gs_cdof_vel", gs_cdof_vel)
+    print("mj_cdof_vel", mj_cdof_vel[mj_dof_idcs])
+    breakpoint()
+
+    # mujoco.mj_fwdPosition(mj_sim.model, mj_sim.data)
+    # mujoco.mj_forward(mj_sim.model, mj_sim.data)
+    mujoco.mj_step(mj_sim.model, mj_sim.data)
+
+    mj_cdof_vel = mj_sim.data.cdof[:, 3:]
+    print("mj_cdof_vel", mj_cdof_vel[mj_dof_idcs])
+
+    # [[ 0.          0.          1.        ]
+    # [ 1.          0.          0.        ]
+    # [-0.46723178  0.          0.24531488]
+    # [ 0.20404366  0.         -0.10132872]
+    # [ 0.20404366  0.         -0.10132872]
+    # [-0.19085596  0.          0.11443571]
+    # [-0.19082973  0.          0.11448371]
+    # [-0.62978812  0.          0.35389041]
+    # [-0.62968307  0.          0.35408285]]
+
+    #     array([[ 0.        ,  0.        ,  1.        ],
+    #        [ 1.        ,  0.        ,  0.        ],
+    #        [-0.46719477,  0.        ,  0.24535799],
+    #        [ 0.20409331,  0.        , -0.10121354],
+    #        [ 0.20409331,  0.        , -0.10121354],
+    #        [-0.19079369,  0.        ,  0.11457398],
+    #        [-0.19074834,  0.        ,  0.11465695],
+    #        [-0.62975959,  0.        ,  0.35396682],
+    #        [-0.62988076,  0.        ,  0.3537442 ]])
+    # (Pdb++) mujoco.mj_fwdPosition(mj_sim.model, mj_sim.data)
+    # (Pdb++)  mj_cdof_vel = mj_sim.data.cdof[:, 3:]
+    # (Pdb++)
+    # (Pdb++) mj_cdof_vel[mj_dof_idcs]
+    # array([[ 0.        ,  0.        ,  1.        ],
+    #        [ 1.        ,  0.        ,  0.        ],
+    #        [-0.46719477,  0.        ,  0.24535799],
+    #        [ 0.20409331,  0.        , -0.10121354],
+    #        [ 0.20409331,  0.        , -0.10121354],
+    #        [-0.19079369,  0.        ,  0.11457398],
+    #        [-0.19074834,  0.        ,  0.11465695],
+    #        [-0.62975959,  0.        ,  0.35396682],
+    #        [-0.62988076,  0.        ,  0.3537442 ]])
+
+    # value1
+    # step()
+    # value2
+    # fwd_position()
+    # value3
+
+    gs_cd_vel = gs_sim.rigid_solver.links_state.cd_vel.to_numpy()[:, 0]
+    mj_cd_vel = mj_sim.data.cvel[:, 3:]
+    np.testing.assert_allclose(gs_cd_vel[gs_body_idcs], mj_cd_vel[mj_body_idcs], atol=atol)
+    gs_cd_ang = gs_sim.rigid_solver.links_state.cd_ang.to_numpy()[:, 0]
+    mj_cd_ang = mj_sim.data.cvel[:, :3]
+    np.testing.assert_allclose(gs_cd_ang[gs_body_idcs], mj_cd_ang[mj_body_idcs], atol=atol)
 
     mj_cdof_dot_ang = mj_sim.data.cdof_dot[:, :3]
     gs_cdof_dot_ang = gs_sim.rigid_solver.dofs_state.cdofd_ang.to_numpy()[:, 0]
