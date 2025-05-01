@@ -7,6 +7,7 @@ from pxr import Usd, UsdGeom, UsdShade, Gf, Sdf
 import genesis as gs
 import genesis.utils.mesh as mu
 
+
 def parse_mesh_usd(path, group_by_material, scale, surface):
     """
     Parse mesh from USD file.
@@ -98,7 +99,7 @@ def parse_mesh_usd(path, group_by_material, scale, surface):
 
             for count in face_vertex_counts:
                 face_count[count] = face_count.get(count, 0) + 1
-                face = indices[index_offset : index_offset + count].tolist()
+                face = indices[index_offset : index_offset + count]
 
                 # If the face is a triangle, keep it as is
                 if count == 3:
@@ -112,9 +113,9 @@ def parse_mesh_usd(path, group_by_material, scale, surface):
 
             # if face count is not 3, means it is not all triangle faces
             if len(face_count) >= 2 or (3 not in face_count):
-                gs.logger.warning(f"Mesh {mesh} has non-triangle faces. Face count {face_count}")
+                gs.logger.debug(f"Mesh {mesh} has non-triangle faces. Face count {face_count}")
 
-            faces = np.array(faces, dtype=int)
+            faces = np.stack(faces, axis=0, dtype=np.int32)
 
             # load uvs
             if sts is not None:
@@ -308,5 +309,4 @@ def parse_mesh_usd(path, group_by_material, scale, surface):
                 )
             )
 
-    del stage
     return meshes
