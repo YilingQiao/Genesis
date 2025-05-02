@@ -7,6 +7,7 @@ from pxr import Usd, UsdGeom, UsdShade, Gf, Sdf
 import genesis as gs
 import genesis.utils.mesh as mu
 
+
 def parse_mesh_usd(path, group_by_material, scale, surface):
     """
     Parse mesh from USD file.
@@ -98,7 +99,7 @@ def parse_mesh_usd(path, group_by_material, scale, surface):
 
             for count in face_vertex_counts:
                 face_count[count] = face_count.get(count, 0) + 1
-                face = indices[index_offset : index_offset + count].tolist()
+                face = indices[index_offset : index_offset + count]
 
                 # If the face is a triangle, keep it as is
                 if count == 3:
@@ -114,12 +115,12 @@ def parse_mesh_usd(path, group_by_material, scale, surface):
             if len(face_count) >= 2 or (3 not in face_count):
                 gs.logger.warning(f"Mesh {mesh} has non-triangle faces. Face count {face_count}")
 
-            faces = np.array(faces, dtype=int)
+            faces = np.stack(faces, axis=0, dtype=np.int32)
 
             # load uvs
             if sts is not None:
                 uvs = []
-                gs.logger.info("Parsing OpenUSD Face st into Vertex uv")
+                gs.logger.debug("Parsing OpenUSD Face st into Vertex uv")
                 # Create a mapping of face vertex indices to their UV
                 if st_indices:
                     assert len(face_vertex_indices) == len(
@@ -131,6 +132,9 @@ def parse_mesh_usd(path, group_by_material, scale, surface):
                     index_to_uv = {fv_idx: sts[idx] for idx, fv_idx in enumerate(face_vertex_indices)}
 
                 # Collect the UVs using the mapping
+                has_undefined_uv = np.any([True for i in range(len(points)) if i not in index_to_uv])
+                if has_undefined_uv:
+                    gs.logger.warning("Mesh has undefined UVs. This is not expected.")
                 uvs = [index_to_uv[i] for i in range(len(points)) if i in index_to_uv]
                 uvs = np.array(uvs)
                 uvs[:, 1] = 1.0 - uvs[:, 1]  # flip y axis for trimesh
@@ -152,6 +156,12 @@ def parse_mesh_usd(path, group_by_material, scale, surface):
                 if shader:
                     diffuse_texture_attr = shader.GetPrim().GetAttribute("inputs:diffuse_texture").Get()
 
+                    color_texture = None
+                    opacity_texture = None
+                    roughness_texture = None
+                    metallic_texture = None
+                    normal_texture_path = None
+
                     # handle the diffuse map texture from USD attribute
                     if diffuse_texture_attr:
                         diffuse_texture_path = diffuse_texture_attr.resolvedPath
@@ -164,12 +174,6 @@ def parse_mesh_usd(path, group_by_material, scale, surface):
                         else:
                             diffuse_tint = np.ones(4, dtype=float)
 
-                        color_texture = None
-                        opacity_texture = None
-                        roughness_texture = None
-                        metallic_texture = None
-                        normal_texture_path = None
-
                         # handle the diffuse map texture from USD attribute
                         if diffuse_image.ndim == 2:
                             diffuse_image = diffuse_image[:, :, np.newaxis]
@@ -181,7 +185,7 @@ def parse_mesh_usd(path, group_by_material, scale, surface):
                             diffuse_image = diffuse_image[:, :, :3]
 
                         color_texture = mu.create_texture(diffuse_image, diffuse_tint, "srgb")
-                        gs.logger.info(f"Loading Diffuse texture: {diffuse_texture_path}")
+                        gs.logger.debug(f"Loading Diffuse texture: {diffuse_texture_path}")
 
                         # handle the normal map texture from USD attribute
                         normal_texture_attr = shader.GetPrim().GetAttribute("inputs:normal_texture").Get()
@@ -189,7 +193,7 @@ def parse_mesh_usd(path, group_by_material, scale, surface):
                             normal_texture_path = normal_texture_attr.resolvedPath
                             normal_image = mu.PIL_to_array(Image.open(normal_texture_path))
                             normal_texture_path = mu.create_texture(normal_image, None, "linear")
-                            gs.logger.info(f"Loading Normal texture: {normal_texture_path}")
+                            gs.logger.debug(f"Loading Normal texture: {normal_texture_path}")
 
                         # handle ORM texture from USD attribute
                         orm_texture_attr = shader.GetPrim().GetAttribute("inputs:ORM_texture").Get()
@@ -200,7 +204,7 @@ def parse_mesh_usd(path, group_by_material, scale, surface):
                             opacity_texture = mu.create_texture(orm_image[:, :, 0], None, "linear")
                             roughness_texture = mu.create_texture(orm_image[:, :, 1], None, "linear")
                             metallic_texture = mu.create_texture(orm_image[:, :, 2], None, "linear")
-                            gs.logger.info(f"Loading ORM texture: {orm_texture_path}")
+                            gs.logger.debug(f"Loading ORM texture: {orm_texture_path}")
                         else:
                             # no ORM texture， handle roughness and metallic texture from USD attribute
                             opacity_texture_attr = shader.GetPrim().GetAttribute("inputs:opacity_texture").Get()
@@ -208,7 +212,7 @@ def parse_mesh_usd(path, group_by_material, scale, surface):
                                 opacity_texture_path = opacity_texture_attr.resolvedPath
                                 opacity_image = mu.PIL_to_array(Image.open(opacity_texture_path))
                                 opacity_texture = mu.create_texture(opacity_image, None, "linear")
-                                gs.logger.info(f"Loading Opacity texture: {opacity_texture_path}")
+                                gs.logger.debug(f"Loading Opacity texture: {opacity_texture_path}")
 
                             roughness_texture_attr = (
                                 shader.GetPrim().GetAttribute("inputs:reflectionroughness_texture").Get()
@@ -217,14 +221,14 @@ def parse_mesh_usd(path, group_by_material, scale, surface):
                                 roughness_texture_path = roughness_texture_attr.resolvedPath
                                 roughness_image = mu.PIL_to_array(Image.open(roughness_texture_path))
                                 roughness_texture = mu.create_texture(roughness_image, None, "linear")
-                                gs.logger.info(f"Loading Roughness texture: {roughness_texture_path}")
+                                gs.logger.debug(f"Loading Roughness texture: {roughness_texture_path}")
 
                             metallic_texture_attr = shader.GetPrim().GetAttribute("inputs:metallic_texture").Get()
                             if metallic_texture_attr:
                                 metallic_texture_path = metallic_texture_attr.resolvedPath
                                 metallic_image = mu.PIL_to_array(Image.open(metallic_texture_path))
                                 metallic_texture = mu.create_texture(metallic_image, None, "linear")
-                                gs.logger.info(f"Loading Metallic texture: {metallic_texture_path}")
+                                gs.logger.debug(f"Loading Metallic texture: {metallic_texture_path}")
 
                         # update surface texture
                         mesh_surface.update_texture(
@@ -256,19 +260,13 @@ def parse_mesh_usd(path, group_by_material, scale, surface):
                                 else:
                                     diffuse_tint = np.ones(4, dtype=float)
 
-                                color_texture = None
-                                normal_texture = None
-                                opacity_texture = None
-                                roughness_texture = None
-                                metallic_texture = None
-
                                 if diffuse_texture_path:
                                     diffuse_texture_path = os.path.normpath(
                                         os.path.join(os.path.dirname(mdl_asset_path), diffuse_texture_path)
                                     )
                                     diffuse_image = mu.PIL_to_array(Image.open(diffuse_texture_path))
                                     color_texture = mu.create_texture(diffuse_image, diffuse_tint, "srgb")
-                                    gs.logger.info(f"Get Diffuse texture: {diffuse_texture_path}")
+                                    gs.logger.debug(f"Get Diffuse texture: {diffuse_texture_path}")
 
                                 if normal_texture_path:
                                     normal_texture_path = os.path.normpath(
@@ -276,7 +274,7 @@ def parse_mesh_usd(path, group_by_material, scale, surface):
                                     )
                                     normal_image = mu.PIL_to_array(Image.open(normal_texture_path))
                                     normal_texture = mu.create_texture(normal_image, None, "linear")
-                                    gs.logger.info(f"Get Normal texture: {normal_texture_path}")
+                                    gs.logger.debug(f"Get Normal texture: {normal_texture_path}")
 
                                 if orm_texture_path:
                                     orm_texture_path = os.path.normpath(
@@ -287,7 +285,7 @@ def parse_mesh_usd(path, group_by_material, scale, surface):
                                     opacity_texture = mu.create_texture(orm_image[:, :, 0], None, "linear")
                                     roughness_texture = mu.create_texture(orm_image[:, :, 1], None, "linear")
                                     metallic_texture = mu.create_texture(orm_image[:, :, 2], None, "linear")
-                                    gs.logger.info(f"Get ORM texture: {orm_texture_path}")
+                                    gs.logger.debug(f"Get ORM texture: {orm_texture_path}")
 
                                 mesh_surface.update_texture(
                                     color_texture=color_texture,
@@ -308,5 +306,4 @@ def parse_mesh_usd(path, group_by_material, scale, surface):
                 )
             )
 
-    del stage
     return meshes
