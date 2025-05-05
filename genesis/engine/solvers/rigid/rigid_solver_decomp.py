@@ -17,6 +17,10 @@ from .constraint_solver_decomp import ConstraintSolver
 from .constraint_solver_decomp_island import ConstraintSolverIsland
 from .sdf_decomp import SDF
 
+# TODO: is_ndarray as parameter
+from .data_class import DofsState, DofsInfo, GlobalData, vec_types
+
+is_ndarray = True
 
 # minimum constraint impedance
 IMP_MIN = 0.0001
@@ -307,9 +311,8 @@ class RigidSolver(Solver):
         self.mass_mat_L = ti.field(dtype=gs.ti_float, shape=self._batch_shape((self.n_dofs_, self.n_dofs_)))
         self.mass_mat_D_inv = ti.field(dtype=gs.ti_float, shape=self._batch_shape((self.n_dofs_,)))
 
-        self._mass_mat_mask = ti.field(dtype=gs.ti_int, shape=self._batch_shape(self.n_entities_))
-        self._mass_mat_mask.fill(1)
-
+        self.mass_mat_mask = ti.field(dtype=gs.ti_int, shape=self._batch_shape(self.n_entities_))
+        self.mass_parent_mask = ti.field(dtype=gs.ti_float, shape=(self.n_dofs_, self.n_dofs_))
         self.meaninertia = ti.field(dtype=gs.ti_float, shape=self._batch_shape())
 
         # tree structure information
@@ -323,15 +326,40 @@ class RigidSolver(Solver):
                         mass_parent_mask[i_d, j_d] = 1.0
                 j = self.links[j].parent_idx
 
-        self.mass_parent_mask = ti.field(dtype=gs.ti_float, shape=(self.n_dofs_, self.n_dofs_))
         self.mass_parent_mask.from_numpy(mass_parent_mask)
 
         # just in case
         self.mass_mat_L.fill(0)
         self.mass_mat_D_inv.fill(0)
         self.meaninertia.fill(0)
+        self.mass_mat_mask.fill(1)
+
+        ############################################################ ndarray version
+        self._d = GlobalData(
+            is_ndarray=is_ndarray, n_dofs=self.n_dofs_, n_entities=self.n_entities_, f_batch=self._batch_shape
+        )
+
+        # tree structure information
+        mass_parent_mask = np.zeros((self.n_dofs_, self.n_dofs_), dtype=gs.np_float)
+        for i in range(self.n_links):
+            j = i
+            while j != -1:
+                for i_d in range(self.links[i].dof_start, self.links[i].dof_end):
+                    for j_d in range(self.links[j].dof_start, self.links[j].dof_end):
+                        mass_parent_mask[i_d, j_d] = 1.0
+                j = self.links[j].parent_idx
+
+        self._d.mass_mat_mask.fill(1)
+        self._d.meaninertia.fill(0)
+        self._d.mass_mat.fill(0)
+        self._d.mass_mat_L.fill(0)
+        self._d.mass_mat_D_inv.fill(0)
+        self._d.mass_parent_mask.from_numpy(mass_parent_mask)
+
+        np.testing.assert_allclose(self.mass_parent_mask.to_numpy(), self._d.mass_parent_mask.to_numpy())
 
     def _init_dof_fields(self):
+        # TODO: awake_dofs
         if self._use_hibernation:
             self.n_awake_dofs = ti.field(dtype=gs.ti_int, shape=self._B)
             self.awake_dofs = ti.field(dtype=gs.ti_int, shape=self._batch_shape(self.n_dofs_))
@@ -409,6 +437,130 @@ class RigidSolver(Solver):
 
         # just in case
         self.dofs_state.force.fill(0)
+
+        ############################################################ ndarray version
+
+        def make_kernel_init_dof_fields(is_ndarray: bool, is_serial: bool = False):
+            VT = vec_types(is_ndarray)
+
+            @ti.kernel
+            def _kernel_init_dof_fields(
+                np_stiffness: ti.types.ndarray(),
+                np_sol_params: ti.types.ndarray(),
+                np_invweight: ti.types.ndarray(),
+                np_armature: ti.types.ndarray(),
+                np_damping: ti.types.ndarray(),
+                np_motion_ang: ti.types.ndarray(),
+                np_motion_vel: ti.types.ndarray(),
+                np_limit: ti.types.ndarray(),
+                np_kp: ti.types.ndarray(),
+                np_kv: ti.types.ndarray(),
+                np_force_range: ti.types.ndarray(),
+                dofs_info_stiffness: VT.F,
+                dofs_info_sol_params: VT.V7,
+                dofs_info_invweight: VT.F,
+                dofs_info_armature: VT.F,
+                dofs_info_damping: VT.F,
+                dofs_info_motion_ang: VT.V3,
+                dofs_info_motion_vel: VT.V3,
+                dofs_info_limit: VT.V2,
+                dofs_info_kp: VT.F,
+                dofs_info_kv: VT.F,
+                dofs_info_force_range: VT.V2,
+                dofs_state_ctrl_mode: VT.I,
+            ):
+                ti.loop_config(serialize=self._para_level < gs.PARA_LEVEL.PARTIAL)
+                for I in ti.grouped(self.dofs_info):
+                    i = I[0]  # batching (if any) will be the second dim
+
+                    for j in ti.static(range(3)):
+                        dofs_info_motion_ang[I][j] = np_motion_ang[i, j]
+                        dofs_info_motion_vel[I][j] = np_motion_vel[i, j]
+
+                    for j in ti.static(range(2)):
+                        dofs_info_limit[I][j] = np_limit[i, j]
+                        dofs_info_force_range[I][j] = np_force_range[i, j]
+
+                    for j in ti.static(range(7)):
+                        dofs_info_sol_params[I][j] = np_sol_params[i, j]
+
+                    dofs_info_armature[I] = np_armature[i]
+                    dofs_info_invweight[I] = np_invweight[i]
+                    dofs_info_stiffness[I] = np_stiffness[i]
+                    dofs_info_damping[I] = np_damping[i]
+                    dofs_info_kp[I] = np_kp[i]
+                    dofs_info_kv[I] = np_kv[i]
+
+                ti.loop_config(serialize=is_serial)
+                for i, b in ti.ndrange(dofs_state_ctrl_mode.shape[0], dofs_state_ctrl_mode.shape[1]):
+                    dofs_state_ctrl_mode[i, b] = gs.CTRL_MODE.FORCE
+
+                # TODO: awake_dofs
+                # if ti.static(self._use_hibernation):
+                #     ti.loop_config(serialize=is_serial)
+                #     for i, b in ti.ndrange(self.n_dofs, self._B):
+                #         self.dofs_state[i, b].hibernated = False
+                #         self.awake_dofs[i, b] = i
+
+                #     ti.loop_config(serialize=is_serial)
+                #     for b in range(self._B):
+                #         self.n_awake_dofs[b] = self.n_dofs
+
+            return _kernel_init_dof_fields
+
+        dofs_info_shape = self._batch_shape(self.n_dofs_) if self._options.batch_dofs_info else self.n_dofs_
+        self._dofs_info = DofsInfo(is_ndarray=is_ndarray, shape=dofs_info_shape)
+
+        self._dofs_state = DofsState(is_ndarray=is_ndarray, shape=self._batch_shape(self.n_dofs_))
+
+        self._kernel_init_dof_fields = make_kernel_init_dof_fields(is_ndarray)
+
+        joints = self.joints
+        is_nonempty = np.concatenate([joint.dofs_motion_ang for joint in joints], dtype=gs.np_float).shape[0] > 0
+        if is_nonempty:  # handle the case where there is a link with no dofs -- otherwise may cause invalid memory
+            # Make sure that the constraints parameters are valid
+            dofs_sol_params = np.concatenate([joint.dofs_sol_params for joint in joints], dtype=gs.np_float)
+            dofs_sol_params = _sanitize_sol_params(
+                dofs_sol_params, self._sol_constraint_min_resolve_time, self._sol_constraint_resolve_time
+            )
+
+            self._kernel_init_dof_fields(
+                np_stiffness=np.concatenate([joint.dofs_stiffness for joint in joints], dtype=gs.np_float),
+                np_sol_params=dofs_sol_params,
+                np_invweight=np.concatenate([joint.dofs_invweight for joint in joints], dtype=gs.np_float),
+                np_armature=np.concatenate([joint.dofs_armature for joint in joints], dtype=gs.np_float),
+                np_damping=np.concatenate([joint.dofs_damping for joint in joints], dtype=gs.np_float),
+                np_motion_ang=np.concatenate([joint.dofs_motion_ang for joint in joints], dtype=gs.np_float),
+                np_motion_vel=np.concatenate([joint.dofs_motion_vel for joint in joints], dtype=gs.np_float),
+                np_limit=np.concatenate([joint.dofs_limit for joint in joints], dtype=gs.np_float),
+                np_kp=np.concatenate([joint.dofs_kp for joint in joints], dtype=gs.np_float),
+                np_kv=np.concatenate([joint.dofs_kv for joint in joints], dtype=gs.np_float),
+                np_force_range=np.concatenate([joint.dofs_force_range for joint in joints], dtype=gs.np_float),
+                dofs_info_stiffness=self._dofs_info.stiffness,
+                dofs_info_sol_params=self._dofs_info.sol_params,
+                dofs_info_invweight=self._dofs_info.invweight,
+                dofs_info_armature=self._dofs_info.armature,
+                dofs_info_damping=self._dofs_info.damping,
+                dofs_info_motion_ang=self._dofs_info.motion_ang,
+                dofs_info_motion_vel=self._dofs_info.motion_vel,
+                dofs_info_limit=self._dofs_info.limit,
+                dofs_info_kp=self._dofs_info.kp,
+                dofs_info_kv=self._dofs_info.kv,
+                dofs_info_force_range=self._dofs_info.force_range,
+                dofs_state_ctrl_mode=self._dofs_state.ctrl_mode,
+            )
+
+            np.testing.assert_allclose(
+                self._dofs_info.motion_vel.to_numpy(),
+                np.concatenate([joint.dofs_motion_vel for joint in joints], dtype=gs.np_float),
+            )
+            np.testing.assert_allclose(self._dofs_info.sol_params.to_numpy(), dofs_sol_params)
+            np.testing.assert_allclose(
+                self._dofs_info.stiffness.to_numpy(),
+                np.concatenate([joint.dofs_stiffness for joint in joints], dtype=gs.np_float),
+            )
+
+        self._dofs_state.force.fill(0)
 
     @ti.kernel
     def _kernel_init_dof_fields(
@@ -778,6 +930,121 @@ class RigidSolver(Solver):
                 is_free=np.concatenate([np.full(geom.n_verts, geom.is_free) for geom in geoms], dtype=gs.np_int),
             )
 
+        ######################################################### ndarray
+
+        from .data_class import VertsState, VertsInfo, FacesInfo, EdgesInfo
+
+        self._verts_info = VertsInfo(is_ndarray=is_ndarray, n_verts=self.n_verts_)
+        self._faces_info = FacesInfo(is_ndarray=is_ndarray, n_faces=self.n_faces_)
+        self._edges_info = EdgesInfo(is_ndarray=is_ndarray, n_edges=self.n_edges_)
+
+        # TODO: what if == 0?
+        if self.n_free_verts > 0:
+            self._free_verts_state = VertsState(
+                is_ndarray=is_ndarray, n_verts=self.n_free_verts, f_batch=self._batch_shape
+            )
+        if self.n_fixed_verts > 0:
+            self._fixed_verts_state = VertsState(
+                is_ndarray=is_ndarray, n_verts=self.n_fixed_verts, f_batch=self._batch_shape
+            )
+
+        def make_kernel_init_vert_fields(is_ndarray: bool, is_serial: bool = False):
+            VT = vec_types(is_ndarray)
+
+            @ti.kernel
+            def _kernel_init_vert_fields(
+                np_verts: ti.types.ndarray(),
+                np_faces: ti.types.ndarray(),
+                np_edges: ti.types.ndarray(),
+                np_normals: ti.types.ndarray(),
+                np_verts_geom_idx: ti.types.ndarray(),
+                np_init_center_pos: ti.types.ndarray(),
+                np_verts_state_idx: ti.types.ndarray(),
+                np_is_free: ti.types.ndarray(),
+                verts_info_init_pos: VT.V3,
+                verts_info_init_normal: VT.V3,
+                verts_info_init_center_pos: VT.V3,
+                verts_info_geom_idx: VT.I,
+                verts_info_verts_state_idx: VT.I,
+                verts_info_is_free: VT.I,
+                faces_info_verts_idx: VT.IV3,
+                faces_info_geom_idx: VT.I,
+                edges_info_v0: VT.I,
+                edges_info_v1: VT.I,
+                edges_info_length: VT.F,
+            ):
+                ti.loop_config(serialize=is_serial)
+                for i in range(verts_info_init_pos.shape[0]):
+                    for j in ti.static(range(3)):
+                        verts_info_init_pos[i][j] = np_verts[i, j]
+                        verts_info_init_normal[i][j] = np_normals[i, j]
+                        verts_info_init_center_pos[i][j] = np_init_center_pos[i, j]
+
+                    verts_info_geom_idx[i] = np_verts_geom_idx[i]
+                    verts_info_verts_state_idx[i] = np_verts_state_idx[i]
+                    verts_info_is_free[i] = np_is_free[i]
+
+                ti.loop_config(serialize=is_serial)
+                for i in range(faces_info_verts_idx.shape[0]):
+                    for j in ti.static(range(3)):
+                        faces_info_verts_idx[i][j] = np_faces[i, j]
+                    faces_info_geom_idx[i] = np_verts_geom_idx[np_faces[i, 0]]
+
+                ti.loop_config(serialize=is_serial)
+                for i in range(edges_info_v0.shape[0]):
+                    edges_info_v0[i] = np_edges[i, 0]
+                    edges_info_v1[i] = np_edges[i, 1]
+                    edges_info_length[i] = (
+                        verts_info_init_pos[edges_info_v0[i]] - verts_info_init_pos[edges_info_v1[i]]
+                    ).norm()
+
+            return _kernel_init_vert_fields
+
+        if self.n_verts > 0:
+            self._kernel_init_vert_fields = make_kernel_init_vert_fields(
+                is_ndarray=is_ndarray, is_serial=self._para_level < gs.PARA_LEVEL.PARTIAL
+            )
+
+            self._kernel_init_vert_fields(
+                np_verts=np.concatenate([geom.init_verts for geom in geoms], dtype=gs.np_float),
+                np_faces=np.concatenate([geom.init_faces + geom.vert_start for geom in geoms], dtype=gs.np_int),
+                np_edges=np.concatenate([geom.init_edges + geom.vert_start for geom in geoms], dtype=gs.np_int),
+                np_normals=np.concatenate([geom.init_normals for geom in geoms], dtype=gs.np_float),
+                np_verts_geom_idx=np.concatenate([np.full(geom.n_verts, geom.idx) for geom in geoms], dtype=gs.np_int),
+                np_init_center_pos=np.concatenate([geom.init_center_pos for geom in geoms], dtype=gs.np_float),
+                np_verts_state_idx=np.concatenate(
+                    [np.arange(geom.verts_state_start, geom.verts_state_start + geom.n_verts) for geom in geoms],
+                    dtype=gs.np_int,
+                ),
+                np_is_free=np.concatenate([np.full(geom.n_verts, geom.is_free) for geom in geoms], dtype=gs.np_int),
+                verts_info_init_pos=self._verts_info.init_pos,
+                verts_info_init_normal=self._verts_info.init_normal,
+                verts_info_init_center_pos=self._verts_info.init_center_pos,
+                verts_info_geom_idx=self._verts_info.geom_idx,
+                verts_info_verts_state_idx=self._verts_info.verts_state_idx,
+                verts_info_is_free=self._verts_info.is_free,
+                faces_info_verts_idx=self._faces_info.verts_idx,
+                faces_info_geom_idx=self._faces_info.geom_idx,
+                edges_info_v0=self._edges_info.v0,
+                edges_info_v1=self._edges_info.v1,
+                edges_info_length=self._edges_info.length,
+            )
+
+            np.testing.assert_allclose(self._verts_info.init_pos.to_numpy(), self.verts_info.init_pos.to_numpy())
+            np.testing.assert_allclose(self._verts_info.init_normal.to_numpy(), self.verts_info.init_normal.to_numpy())
+            np.testing.assert_allclose(
+                self._verts_info.init_center_pos.to_numpy(), self.verts_info.init_center_pos.to_numpy()
+            )
+            np.testing.assert_allclose(self._verts_info.geom_idx.to_numpy(), self.verts_info.geom_idx.to_numpy())
+            np.testing.assert_allclose(
+                self._verts_info.verts_state_idx.to_numpy(), self.verts_info.verts_state_idx.to_numpy()
+            )
+            np.testing.assert_allclose(self._verts_info.is_free.to_numpy(), self.verts_info.is_free.to_numpy())
+            np.testing.assert_allclose(self._faces_info.verts_idx.to_numpy(), self.faces_info.verts_idx.to_numpy())
+            np.testing.assert_allclose(self._edges_info.v0.to_numpy(), self.edges_info.v0.to_numpy())
+            np.testing.assert_allclose(self._edges_info.v1.to_numpy(), self.edges_info.v1.to_numpy())
+            np.testing.assert_allclose(self._edges_info.length.to_numpy(), self.edges_info.length.to_numpy())
+
     def _init_vvert_fields(self):
         # visual geom
         struct_vvert_info = ti.types.struct(
@@ -803,6 +1070,71 @@ class RigidSolver(Solver):
                     [np.full(vgeom.n_vverts, vgeom.idx) for vgeom in vgeoms], dtype=gs.np_int
                 ),
             )
+
+        ######################################################### ndarray
+
+        from .data_class import VvertsInfo, VfacesInfo
+
+        self._vverts_info = VvertsInfo(is_ndarray=is_ndarray, n_vverts=self.n_vverts_)
+        self._vfaces_info = VfacesInfo(is_ndarray=is_ndarray, n_vfaces=self.n_vfaces_)
+
+        def make_kernel_init_vvert_fields(is_ndarray: bool, is_serial: bool = False):
+            VT = vec_types(is_ndarray)
+
+            @ti.kernel
+            def _kernel_init_vvert_fields(
+                np_vverts: ti.types.ndarray(),
+                np_vfaces: ti.types.ndarray(),
+                np_vnormals: ti.types.ndarray(),
+                np_vverts_vgeom_idx: ti.types.ndarray(),
+                vverts_info_init_pos: VT.V3,
+                vverts_info_init_vnormal: VT.V3,
+                vverts_info_vgeom_idx: VT.I,
+                vfaces_info_vverts_idx: VT.IV3,
+                vfaces_info_vgeom_idx: VT.I,
+            ):
+                ti.loop_config(serialize=is_serial)
+                for i in range(vverts_info_init_pos.shape[0]):
+                    for j in ti.static(range(3)):
+                        vverts_info_init_pos[i][j] = np_vverts[i, j]
+                        vverts_info_init_vnormal[i][j] = np_vnormals[i, j]
+
+                    vverts_info_vgeom_idx[i] = np_vverts_vgeom_idx[i]
+
+                ti.loop_config(serialize=is_serial)
+                for i in range(vfaces_info_vverts_idx.shape[0]):
+                    for j in ti.static(range(3)):
+                        vfaces_info_vverts_idx[i][j] = np_vfaces[i, j]
+                    vfaces_info_vgeom_idx[i] = np_vverts_vgeom_idx[np_vfaces[i, 0]]
+
+            return _kernel_init_vvert_fields
+
+        if self.n_vverts > 0:
+            self._kernel_init_vvert_fields = make_kernel_init_vvert_fields(
+                is_ndarray=is_ndarray, is_serial=self._para_level < gs.PARA_LEVEL.PARTIAL
+            )
+
+            self._kernel_init_vvert_fields(
+                np_vverts=np.concatenate([vgeom.init_vverts for vgeom in vgeoms], dtype=gs.np_float),
+                np_vfaces=np.concatenate([vgeom.init_vfaces + vgeom.vvert_start for vgeom in vgeoms], dtype=gs.np_int),
+                np_vnormals=np.concatenate([vgeom.init_vnormals for vgeom in vgeoms], dtype=gs.np_float),
+                np_vverts_vgeom_idx=np.concatenate(
+                    [np.full(vgeom.n_vverts, vgeom.idx) for vgeom in vgeoms], dtype=gs.np_int
+                ),
+                vverts_info_init_pos=self._vverts_info.init_pos,
+                vverts_info_init_vnormal=self._vverts_info.init_vnormal,
+                vverts_info_vgeom_idx=self._vverts_info.vgeom_idx,
+                vfaces_info_vverts_idx=self._vfaces_info.vverts_idx,
+                vfaces_info_vgeom_idx=self._vfaces_info.vgeom_idx,
+            )
+
+            np.testing.assert_allclose(self._vverts_info.init_pos.to_numpy(), self.vverts_info.init_pos.to_numpy())
+            np.testing.assert_allclose(
+                self._vverts_info.init_vnormal.to_numpy(), self.vverts_info.init_vnormal.to_numpy()
+            )
+            np.testing.assert_allclose(self._vverts_info.vgeom_idx.to_numpy(), self.vverts_info.vgeom_idx.to_numpy())
+            np.testing.assert_allclose(self._vfaces_info.vverts_idx.to_numpy(), self.vfaces_info.vverts_idx.to_numpy())
+            np.testing.assert_allclose(self._vfaces_info.vgeom_idx.to_numpy(), self.vfaces_info.vgeom_idx.to_numpy())
 
     @ti.kernel
     def _kernel_init_vert_fields(
@@ -962,6 +1294,11 @@ class RigidSolver(Solver):
                 geoms_is_free=np.array([geom.is_free for geom in geoms], dtype=gs.np_int),
                 geoms_is_decomp=np.array([geom.metadata.get("decomposed", False) for geom in geoms], dtype=gs.np_int),
             )
+
+        print("init_geom_fields")
+        from IPython import embed
+
+        embed()
 
     @ti.kernel
     def _kernel_init_geom_fields(
@@ -1505,7 +1842,7 @@ class RigidSolver(Solver):
                 for i_e_ in range(self.n_awake_entities[i_b]):
                     i_e = self.awake_entities[i_e_, i_b]
 
-                    if self._mass_mat_mask[i_e, i_b] == 1:
+                    if self.mass_mat_mask[i_e, i_b] == 1:
                         entity_dof_start = self.entities_info[i_e].dof_start
                         entity_dof_end = self.entities_info[i_e].dof_end
                         n_dofs = self.entities_info[i_e].n_dofs
@@ -1539,7 +1876,7 @@ class RigidSolver(Solver):
         else:
             ti.loop_config(serialize=self._para_level < gs.PARA_LEVEL.PARTIAL)
             for i_e, i_b in ti.ndrange(self.n_entities, self._B):
-                if self._mass_mat_mask[i_e, i_b] == 1:
+                if self.mass_mat_mask[i_e, i_b] == 1:
                     entity_dof_start = self.entities_info[i_e].dof_start
                     entity_dof_end = self.entities_info[i_e].dof_end
                     n_dofs = self.entities_info[i_e].n_dofs
@@ -1578,7 +1915,7 @@ class RigidSolver(Solver):
             for i_e_ in range(self.n_awake_entities[i_b]):
                 i_e = self.awake_entities[i_e_, i_b]
 
-                if self._mass_mat_mask[i_e, i_b] == 1:
+                if self.mass_mat_mask[i_e, i_b] == 1:
                     entity_dof_start = self.entities_info[i_e].dof_start
                     entity_dof_end = self.entities_info[i_e].dof_end
                     n_dofs = self.entities_info[i_e].n_dofs
@@ -1601,7 +1938,7 @@ class RigidSolver(Solver):
         else:
             ti.loop_config(serialize=self._para_level < gs.PARA_LEVEL.PARTIAL)
             for i_e in range(self.n_entities):
-                if self._mass_mat_mask[i_e, i_b] == 1:
+                if self.mass_mat_mask[i_e, i_b] == 1:
                     entity_dof_start = self.entities_info[i_e].dof_start
                     entity_dof_end = self.entities_info[i_e].dof_end
                     n_dofs = self.entities_info[i_e].n_dofs
@@ -1678,7 +2015,7 @@ class RigidSolver(Solver):
         # Note that avoiding inverting the mass matrix twice would not only speed up simulation but also improving
         # numerical stability as computing post-damping accelerations from forces is not necessary anymore.
         if ti.static(not self._enable_mujoco_compatibility or self._integrator == gs.integrator.Euler):
-            self._mass_mat_mask.fill(0)
+            self.mass_mat_mask.fill(0)
             ti.loop_config(serialize=self._para_level < gs.PARA_LEVEL.PARTIAL)
             for i_e, i_b in ti.ndrange(self.n_entities, self._B):
                 entity_dof_start = self.entities_info[i_e].dof_start
@@ -1686,20 +2023,20 @@ class RigidSolver(Solver):
                 for i_d in range(entity_dof_start, entity_dof_end):
                     I_d = [i_d, i_b] if ti.static(self._options.batch_dofs_info) else i_d
                     if self.dofs_info[I_d].damping > gs.EPS:
-                        self._mass_mat_mask[i_e, i_b] = 1
+                        self.mass_mat_mask[i_e, i_b] = 1
                     if ti.static(self._integrator != gs.integrator.Euler):
                         if (
                             (self.dofs_state[i_d, i_b].ctrl_mode == gs.CTRL_MODE.POSITION)
                             or (self.dofs_state[i_d, i_b].ctrl_mode == gs.CTRL_MODE.VELOCITY)
                         ) and self.dofs_info[I_d].kv > gs.EPS:
-                            self._mass_mat_mask[i_e, i_b] = 1
+                            self.mass_mat_mask[i_e, i_b] = 1
 
         self._func_factor_mass(implicit_damping=True)
         self._func_solve_mass(self.dofs_state.force, self.dofs_state.acc)
 
         # Disable pre-computed factorization mask right away
         if ti.static(not self._enable_mujoco_compatibility or self._integrator == gs.integrator.Euler):
-            self._mass_mat_mask.fill(1)
+            self.mass_mat_mask.fill(1)
 
     @ti.kernel
     def _kernel_step_2(self):
