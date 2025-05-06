@@ -200,6 +200,7 @@ class RigidSolver(Solver):
             self._init_dof_fields()
             self._init_vert_fields()
             self._init_vvert_fields()
+            # init geom shoud be after init_vert_fields because of AABB
             self._init_geom_fields()
             self._init_vgeom_fields()
             self._init_link_fields()
@@ -336,7 +337,11 @@ class RigidSolver(Solver):
 
         ############################################################ ndarray version
         self._d = GlobalData(
-            is_ndarray=is_ndarray, n_dofs=self.n_dofs_, n_entities=self.n_entities_, f_batch=self._batch_shape
+            is_ndarray=is_ndarray,
+            n_dofs=self.n_dofs_,
+            n_entities=self.n_entities_,
+            n_geoms=self.n_geoms_,
+            f_batch=self._batch_shape,
         )
 
         # tree structure information
@@ -772,6 +777,25 @@ class RigidSolver(Solver):
         # This is for IK use only
         # TODO: support IK with parallel envs
         self.links_T = ti.Matrix.field(n=4, m=4, dtype=gs.ti_float, shape=self.n_links)
+
+        ############################################################ ndarray
+        # TODO: hibernation
+        # if self._use_hibernation:
+        #     self.n_awake_links = ti.field(dtype=gs.ti_int, shape=self._B)
+        #     self.awake_links = ti.field(dtype=gs.ti_int, shape=self._batch_shape(self.n_links_))
+
+        links_info_shape = self._batch_shape(self.n_links) if self._options.batch_links_info else self.n_links
+        self.links_info = struct_link_info.field(shape=links_info_shape, needs_grad=False, layout=ti.Layout.SOA)
+        self.links_state = struct_link_state.field(
+            shape=self._batch_shape(self.n_links), needs_grad=False, layout=ti.Layout.SOA
+        )
+
+        links = self.links
+
+        print("init_geom_fields")
+        from IPython import embed
+
+        embed()
 
     @ti.kernel
     def _kernel_init_link_fields(
@@ -1292,13 +1316,270 @@ class RigidSolver(Solver):
                 geoms_coup_friction=np.array([geom.coup_friction for geom in geoms], dtype=gs.np_float),
                 geoms_coup_restitution=np.array([geom.coup_restitution for geom in geoms], dtype=gs.np_float),
                 geoms_is_free=np.array([geom.is_free for geom in geoms], dtype=gs.np_int),
-                geoms_is_decomp=np.array([geom.metadata.get("decomposed", False) for geom in geoms], dtype=gs.np_int),
+                geoms_is_decomposed=np.array(
+                    [geom.metadata.get("decomposed", False) for geom in geoms], dtype=gs.np_int
+                ),
             )
 
-        print("init_geom_fields")
-        from IPython import embed
+        ######################################################### ndarray
 
-        embed()
+        from .data_class import GeomsState, GeomsInfo
+
+        self._geoms_info = GeomsInfo(is_ndarray=is_ndarray, n_geoms=self.n_geoms_)
+        self._geoms_state = GeomsState(is_ndarray=is_ndarray, n_geoms=self.n_geoms_, f_batch=self._batch_shape)
+
+        def make_kernel_init_geom_fields(is_ndarray: bool, is_serial: bool = False):
+            VT = vec_types(is_ndarray)
+
+            @ti.kernel
+            def _kernel_init_geom_fields(
+                np_geoms_pos: ti.types.ndarray(),
+                np_geoms_center: ti.types.ndarray(),
+                np_geoms_quat: ti.types.ndarray(),
+                np_geoms_link_idx: ti.types.ndarray(),
+                np_geoms_type: ti.types.ndarray(),
+                np_geoms_friction: ti.types.ndarray(),
+                np_geoms_sol_params: ti.types.ndarray(),
+                np_geoms_vert_start: ti.types.ndarray(),
+                np_geoms_face_start: ti.types.ndarray(),
+                np_geoms_edge_start: ti.types.ndarray(),
+                np_geoms_verts_state_start: ti.types.ndarray(),
+                np_geoms_vert_end: ti.types.ndarray(),
+                np_geoms_face_end: ti.types.ndarray(),
+                np_geoms_edge_end: ti.types.ndarray(),
+                np_geoms_verts_state_end: ti.types.ndarray(),
+                np_geoms_data: ti.types.ndarray(),
+                np_geoms_is_convex: ti.types.ndarray(),
+                np_geoms_needs_coup: ti.types.ndarray(),
+                np_geoms_contype: ti.types.ndarray(),
+                np_geoms_conaffinity: ti.types.ndarray(),
+                np_geoms_coup_softness: ti.types.ndarray(),
+                np_geoms_coup_friction: ti.types.ndarray(),
+                np_geoms_coup_restitution: ti.types.ndarray(),
+                np_geoms_is_free: ti.types.ndarray(),
+                np_geoms_is_decomposed: ti.types.ndarray(),
+                geoms_info_pos: VT.V3,
+                geoms_info_center: VT.V3,
+                geoms_info_quat: VT.V4,
+                geoms_info_data: VT.V7,
+                geoms_info_link_idx: VT.I,
+                geoms_info_type: VT.I,
+                geoms_info_friction: VT.F,
+                geoms_info_sol_params: VT.V7,
+                geoms_info_vert_start: VT.I,
+                geoms_info_vert_end: VT.I,
+                geoms_info_face_start: VT.I,
+                geoms_info_face_end: VT.I,
+                geoms_info_edge_start: VT.I,
+                geoms_info_edge_end: VT.I,
+                geoms_info_verts_state_start: VT.I,
+                geoms_info_verts_state_end: VT.I,
+                geoms_info_face_num: VT.I,
+                geoms_info_edge_num: VT.I,
+                geoms_info_is_convex: VT.I,
+                geoms_info_needs_coup: VT.I,
+                geoms_info_contype: VT.I,
+                geoms_info_conaffinity: VT.I,
+                geoms_info_coup_softness: VT.F,
+                geoms_info_coup_friction: VT.F,
+                geoms_info_coup_restitution: VT.F,
+                geoms_info_is_free: VT.I,
+                geoms_info_is_decomposed: VT.I,
+                geoms_init_AABB: VT.V3,
+                geoms_state_friction_ratio: VT.F,
+                verts_info_init_pos: VT.V3,
+            ):
+                ti.loop_config(serialize=is_serial)
+                for i in range(self.n_geoms):
+                    for j in ti.static(range(3)):
+                        geoms_info_pos[i][j] = np_geoms_pos[i, j]
+                        geoms_info_center[i][j] = np_geoms_center[i, j]
+
+                    for j in ti.static(range(4)):
+                        geoms_info_quat[i][j] = np_geoms_quat[i, j]
+
+                    for j in ti.static(range(7)):
+                        geoms_info_data[i][j] = np_geoms_data[i, j]
+                        geoms_info_sol_params[i][j] = np_geoms_sol_params[i, j]
+                    # TODO: move this out of the kernel
+                    geoms_info_sol_params[i][0] = geoms_info_sol_params[i][0]
+
+                    geoms_info_link_idx[i] = np_geoms_link_idx[i]
+                    geoms_info_type[i] = np_geoms_type[i]
+                    geoms_info_friction[i] = np_geoms_friction[i]
+
+                    geoms_info_vert_start[i] = np_geoms_vert_start[i]
+                    geoms_info_vert_end[i] = np_geoms_vert_end[i]
+                    geoms_info_face_start[i] = np_geoms_face_start[i]
+                    geoms_info_face_end[i] = np_geoms_face_end[i]
+                    geoms_info_edge_start[i] = np_geoms_edge_start[i]
+                    geoms_info_edge_end[i] = np_geoms_edge_end[i]
+                    geoms_info_verts_state_start[i] = np_geoms_verts_state_start[i]
+                    geoms_info_verts_state_end[i] = np_geoms_verts_state_end[i]
+
+                    geoms_info_face_num[i] = np_geoms_face_end[i] - np_geoms_face_start[i]
+                    geoms_info_edge_num[i] = np_geoms_edge_end[i] - np_geoms_edge_start[i]
+
+                    geoms_info_is_convex[i] = np_geoms_is_convex[i]
+                    geoms_info_needs_coup[i] = np_geoms_needs_coup[i]
+                    geoms_info_contype[i] = np_geoms_contype[i]
+                    geoms_info_conaffinity[i] = np_geoms_conaffinity[i]
+
+                    geoms_info_coup_softness[i] = np_geoms_coup_softness[i]
+                    geoms_info_coup_friction[i] = np_geoms_coup_friction[i]
+                    geoms_info_coup_restitution[i] = np_geoms_coup_restitution[i]
+
+                    geoms_info_is_free[i] = np_geoms_is_free[i]
+                    geoms_info_is_decomposed[i] = np_geoms_is_decomposed[i]
+
+                    lower = gu.ti_vec3(ti.math.inf)
+                    upper = gu.ti_vec3(-ti.math.inf)
+
+                    for i_v in range(geoms_info_vert_start[i], geoms_info_vert_end[i]):
+                        lower = ti.min(lower, verts_info_init_pos[i_v])
+                        upper = ti.max(upper, verts_info_init_pos[i_v])
+
+                    geoms_init_AABB[i, 0] = ti.Vector([lower[0], lower[1], lower[2]], dt=gs.ti_float)
+                    geoms_init_AABB[i, 1] = ti.Vector([lower[0], lower[1], upper[2]], dt=gs.ti_float)
+                    geoms_init_AABB[i, 2] = ti.Vector([lower[0], upper[1], lower[2]], dt=gs.ti_float)
+                    geoms_init_AABB[i, 3] = ti.Vector([lower[0], upper[1], upper[2]], dt=gs.ti_float)
+                    geoms_init_AABB[i, 4] = ti.Vector([upper[0], lower[1], lower[2]], dt=gs.ti_float)
+                    geoms_init_AABB[i, 5] = ti.Vector([upper[0], lower[1], upper[2]], dt=gs.ti_float)
+                    geoms_init_AABB[i, 6] = ti.Vector([upper[0], upper[1], lower[2]], dt=gs.ti_float)
+                    geoms_init_AABB[i, 7] = ti.Vector([upper[0], upper[1], upper[2]], dt=gs.ti_float)
+
+                ti.loop_config(serialize=is_serial)
+                for i_g, i_b in ti.ndrange(geoms_state_friction_ratio.shape[0], geoms_state_friction_ratio.shape[1]):
+                    geoms_state_friction_ratio[i_g, i_b] = 1.0
+
+            return _kernel_init_geom_fields
+
+        self._kernel_init_geom_fields = make_kernel_init_geom_fields(is_ndarray=is_ndarray, is_serial=True)
+
+        if self.n_geoms > 0:
+            # Make sure that the constraints parameters are valid
+            geoms = self.geoms
+            geoms_sol_params = np.array([geom.sol_params for geom in geoms], dtype=gs.np_float)
+            geoms_sol_params = _sanitize_sol_params(
+                geoms_sol_params, self._sol_constraint_min_resolve_time, self._sol_constraint_resolve_time
+            )
+
+            # Accurately compute the center of mass of each geometry if possible.
+            # Note that the mean vertex position is a bad approximation, which is impeding the ability of MPR to
+            # estimate the exact contact information.
+            geoms_center = []
+            for geom in geoms:
+                tmesh = geom.mesh.trimesh
+                if tmesh.is_watertight:
+                    geoms_center.append(tmesh.center_mass)
+                else:
+                    # Still fallback to mean vertex position if no better option...
+                    geoms_center.append(np.mean(tmesh.vertices, axis=0))
+
+            self._kernel_init_geom_fields(
+                np_geoms_pos=np.array([geom.init_pos for geom in geoms], dtype=gs.np_float),
+                np_geoms_center=np.array(geoms_center, dtype=gs.np_float),
+                np_geoms_quat=np.array([geom.init_quat for geom in geoms], dtype=gs.np_float),
+                np_geoms_link_idx=np.array([geom.link.idx for geom in geoms], dtype=gs.np_int),
+                np_geoms_type=np.array([geom.type for geom in geoms], dtype=gs.np_int),
+                np_geoms_friction=np.array([geom.friction for geom in geoms], dtype=gs.np_float),
+                np_geoms_sol_params=np.array([geom.sol_params for geom in geoms], dtype=gs.np_float),
+                np_geoms_vert_start=np.array([geom.vert_start for geom in geoms], dtype=gs.np_int),
+                np_geoms_face_start=np.array([geom.face_start for geom in geoms], dtype=gs.np_int),
+                np_geoms_edge_start=np.array([geom.edge_start for geom in geoms], dtype=gs.np_int),
+                np_geoms_verts_state_start=np.array([geom.verts_state_start for geom in geoms], dtype=gs.np_int),
+                np_geoms_vert_end=np.array([geom.vert_end for geom in geoms], dtype=gs.np_int),
+                np_geoms_face_end=np.array([geom.face_end for geom in geoms], dtype=gs.np_int),
+                np_geoms_edge_end=np.array([geom.edge_end for geom in geoms], dtype=gs.np_int),
+                np_geoms_verts_state_end=np.array([geom.verts_state_end for geom in geoms], dtype=gs.np_int),
+                np_geoms_data=np.array([geom.data for geom in geoms], dtype=gs.np_float),
+                np_geoms_is_convex=np.array([geom.is_convex for geom in geoms], dtype=gs.np_int),
+                np_geoms_needs_coup=np.array([geom.needs_coup for geom in geoms], dtype=gs.np_int),
+                np_geoms_contype=np.array([geom.contype for geom in geoms], dtype=np.int32),
+                np_geoms_conaffinity=np.array([geom.conaffinity for geom in geoms], dtype=np.int32),
+                np_geoms_coup_softness=np.array([geom.coup_softness for geom in geoms], dtype=gs.np_float),
+                np_geoms_coup_friction=np.array([geom.coup_friction for geom in geoms], dtype=gs.np_float),
+                np_geoms_coup_restitution=np.array([geom.coup_restitution for geom in geoms], dtype=gs.np_float),
+                np_geoms_is_free=np.array([geom.is_free for geom in geoms], dtype=gs.np_int),
+                np_geoms_is_decomposed=np.array(
+                    [geom.metadata.get("decomposed", False) for geom in geoms], dtype=gs.np_int
+                ),
+                geoms_info_pos=self._geoms_info.pos,
+                geoms_info_center=self._geoms_info.center,
+                geoms_info_quat=self._geoms_info.quat,
+                geoms_info_data=self._geoms_info.data,
+                geoms_info_link_idx=self._geoms_info.link_idx,
+                geoms_info_type=self._geoms_info.type,
+                geoms_info_friction=self._geoms_info.friction,
+                geoms_info_sol_params=self._geoms_info.sol_params,
+                geoms_info_vert_start=self._geoms_info.vert_start,
+                geoms_info_face_start=self._geoms_info.face_start,
+                geoms_info_edge_start=self._geoms_info.edge_start,
+                geoms_info_verts_state_start=self._geoms_info.verts_state_start,
+                geoms_info_vert_end=self._geoms_info.vert_end,
+                geoms_info_face_end=self._geoms_info.face_end,
+                geoms_info_edge_end=self._geoms_info.edge_end,
+                geoms_info_verts_state_end=self._geoms_info.verts_state_end,
+                geoms_info_face_num=self._geoms_info.face_num,
+                geoms_info_edge_num=self._geoms_info.edge_num,
+                geoms_info_is_convex=self._geoms_info.is_convex,
+                geoms_info_needs_coup=self._geoms_info.needs_coup,
+                geoms_info_contype=self._geoms_info.contype,
+                geoms_info_conaffinity=self._geoms_info.conaffinity,
+                geoms_info_coup_softness=self._geoms_info.coup_softness,
+                geoms_info_coup_friction=self._geoms_info.coup_friction,
+                geoms_info_coup_restitution=self._geoms_info.coup_restitution,
+                geoms_info_is_free=self._geoms_info.is_free,
+                geoms_info_is_decomposed=self._geoms_info.is_decomposed,
+                geoms_init_AABB=self._d.geoms_init_AABB,
+                geoms_state_friction_ratio=self._geoms_state.friction_ratio,
+                verts_info_init_pos=self._verts_info.init_pos,
+            )
+
+            np.testing.assert_allclose(self._geoms_info.pos.to_numpy(), self.geoms_info.pos.to_numpy())
+            np.testing.assert_allclose(self._geoms_info.center.to_numpy(), self.geoms_info.center.to_numpy())
+            np.testing.assert_allclose(self._geoms_info.quat.to_numpy(), self.geoms_info.quat.to_numpy())
+            np.testing.assert_allclose(self._geoms_info.data.to_numpy(), self.geoms_info.data.to_numpy())
+            np.testing.assert_allclose(self._geoms_info.link_idx.to_numpy(), self.geoms_info.link_idx.to_numpy())
+            np.testing.assert_allclose(self._geoms_info.type.to_numpy(), self.geoms_info.type.to_numpy())
+            np.testing.assert_allclose(self._geoms_info.friction.to_numpy(), self.geoms_info.friction.to_numpy())
+            np.testing.assert_allclose(self._geoms_info.sol_params.to_numpy(), self.geoms_info.sol_params.to_numpy())
+            np.testing.assert_allclose(self._geoms_info.vert_start.to_numpy(), self.geoms_info.vert_start.to_numpy())
+            np.testing.assert_allclose(self._geoms_info.vert_end.to_numpy(), self.geoms_info.vert_end.to_numpy())
+            np.testing.assert_allclose(self._geoms_info.face_start.to_numpy(), self.geoms_info.face_start.to_numpy())
+            np.testing.assert_allclose(self._geoms_info.face_end.to_numpy(), self.geoms_info.face_end.to_numpy())
+            np.testing.assert_allclose(self._geoms_info.edge_start.to_numpy(), self.geoms_info.edge_start.to_numpy())
+            np.testing.assert_allclose(self._geoms_info.edge_end.to_numpy(), self.geoms_info.edge_end.to_numpy())
+            np.testing.assert_allclose(
+                self._geoms_info.verts_state_start.to_numpy(), self.geoms_info.verts_state_start.to_numpy()
+            )
+            np.testing.assert_allclose(
+                self._geoms_info.verts_state_end.to_numpy(), self.geoms_info.verts_state_end.to_numpy()
+            )
+            np.testing.assert_allclose(self._geoms_info.face_num.to_numpy(), self.geoms_info.face_num.to_numpy())
+            np.testing.assert_allclose(self._geoms_info.edge_num.to_numpy(), self.geoms_info.edge_num.to_numpy())
+            np.testing.assert_allclose(self._geoms_info.is_convex.to_numpy(), self.geoms_info.is_convex.to_numpy())
+            np.testing.assert_allclose(self._geoms_info.needs_coup.to_numpy(), self.geoms_info.needs_coup.to_numpy())
+            np.testing.assert_allclose(self._geoms_info.contype.to_numpy(), self.geoms_info.contype.to_numpy())
+            np.testing.assert_allclose(self._geoms_info.conaffinity.to_numpy(), self.geoms_info.conaffinity.to_numpy())
+            np.testing.assert_allclose(
+                self._geoms_info.coup_softness.to_numpy(), self.geoms_info.coup_softness.to_numpy()
+            )
+            np.testing.assert_allclose(
+                self._geoms_info.coup_friction.to_numpy(), self.geoms_info.coup_friction.to_numpy()
+            )
+            np.testing.assert_allclose(
+                self._geoms_info.coup_restitution.to_numpy(), self.geoms_info.coup_restitution.to_numpy()
+            )
+            np.testing.assert_allclose(self._geoms_info.is_free.to_numpy(), self.geoms_info.is_free.to_numpy())
+            np.testing.assert_allclose(
+                self._geoms_info.is_decomposed.to_numpy(), self.geoms_info.is_decomposed.to_numpy()
+            )
+
+            np.testing.assert_allclose(self._d.geoms_init_AABB.to_numpy(), self.geoms_init_AABB.to_numpy())
+            np.testing.assert_allclose(
+                self._geoms_state.friction_ratio.to_numpy(), self.geoms_state.friction_ratio.to_numpy()
+            )
 
     @ti.kernel
     def _kernel_init_geom_fields(
@@ -1327,7 +1608,7 @@ class RigidSolver(Solver):
         geoms_coup_friction: ti.types.ndarray(),
         geoms_coup_restitution: ti.types.ndarray(),
         geoms_is_free: ti.types.ndarray(),
-        geoms_is_decomp: ti.types.ndarray(),
+        geoms_is_decomposed: ti.types.ndarray(),
     ):
         ti.loop_config(serialize=self._para_level < gs.PARA_LEVEL.PARTIAL)
         for i in range(self.n_geoms):
@@ -1372,7 +1653,7 @@ class RigidSolver(Solver):
             self.geoms_info[i].coup_restitution = geoms_coup_restitution[i]
 
             self.geoms_info[i].is_free = geoms_is_free[i]
-            self.geoms_info[i].is_decomposed = geoms_is_decomp[i]
+            self.geoms_info[i].is_decomposed = geoms_is_decomposed[i]
 
             # compute init AABB.
             # Beware the ordering the this corners is critical and MUST NOT be changed as this order is used elsewhere
@@ -1449,6 +1730,92 @@ class RigidSolver(Solver):
                 vgeoms_vvert_end=np.array([vgeom.vvert_end for vgeom in vgeoms], dtype=gs.np_int),
                 vgeoms_vface_end=np.array([vgeom.vface_end for vgeom in vgeoms], dtype=gs.np_int),
             )
+
+        ############################################################ ndarray version
+        from genesis.engine.solvers.rigid.data_class import VgeomsInfo, VgeomsState
+
+        self._vgeoms_info = VgeomsInfo(is_ndarray=True, n_vgeoms=self.n_vgeoms_)
+        self._vgeoms_state = VgeomsState(is_ndarray=True, n_vgeoms=self.n_vgeoms_, f_batch=self._batch_shape)
+
+        def make_kernel_init_vgeom_fields(is_ndarray: bool, is_serial: bool = False):
+            VT = vec_types(is_ndarray)
+
+            @ti.kernel
+            def kernel_init_vgeom_fields(
+                np_vgeoms_pos: ti.types.ndarray(),
+                np_vgeoms_quat: ti.types.ndarray(),
+                np_vgeoms_link_idx: ti.types.ndarray(),
+                np_vgeoms_vvert_start: ti.types.ndarray(),
+                np_vgeoms_vface_start: ti.types.ndarray(),
+                np_vgeoms_vvert_end: ti.types.ndarray(),
+                np_vgeoms_vface_end: ti.types.ndarray(),
+                vgeoms_pos: VT.V3,
+                vgeoms_quat: VT.V4,
+                vgeoms_link_idx: VT.I,
+                vgeoms_vvert_start: VT.I,
+                vgeoms_vvert_end: VT.I,
+                vgeoms_vvert_num: VT.I,
+                vgeoms_vface_start: VT.I,
+                vgeoms_vface_end: VT.I,
+                vgeoms_vface_num: VT.I,
+            ):
+                ti.loop_config(serialize=is_serial)
+                for i in range(np_vgeoms_pos.shape[0]):
+                    for j in ti.static(range(3)):
+                        vgeoms_pos[i][j] = np_vgeoms_pos[i, j]
+
+                    for j in ti.static(range(4)):
+                        vgeoms_quat[i][j] = np_vgeoms_quat[i, j]
+
+                    vgeoms_vvert_start[i] = np_vgeoms_vvert_start[i]
+                    vgeoms_vvert_end[i] = np_vgeoms_vvert_end[i]
+                    vgeoms_vvert_num[i] = np_vgeoms_vvert_end[i] - np_vgeoms_vvert_start[i]
+
+                    vgeoms_vface_start[i] = np_vgeoms_vface_start[i]
+                    vgeoms_vface_end[i] = np_vgeoms_vface_end[i]
+                    vgeoms_vface_num[i] = np_vgeoms_vface_end[i] - np_vgeoms_vface_start[i]
+
+                    vgeoms_link_idx[i] = np_vgeoms_link_idx[i]
+
+            return kernel_init_vgeom_fields
+
+        self._kernel_init_vgeom_fields = make_kernel_init_vgeom_fields(is_ndarray=is_ndarray)
+
+        if self.n_vgeoms > 0:
+            vgeoms = self.vgeoms
+
+            self._kernel_init_vgeom_fields(
+                np_vgeoms_pos=np.array([vgeom.init_pos for vgeom in vgeoms], dtype=gs.np_float),
+                np_vgeoms_quat=np.array([vgeom.init_quat for vgeom in vgeoms], dtype=gs.np_float),
+                np_vgeoms_link_idx=np.array([vgeom.link.idx for vgeom in vgeoms], dtype=gs.np_int),
+                np_vgeoms_vvert_start=np.array([vgeom.vvert_start for vgeom in vgeoms], dtype=gs.np_int),
+                np_vgeoms_vface_start=np.array([vgeom.vface_start for vgeom in vgeoms], dtype=gs.np_int),
+                np_vgeoms_vvert_end=np.array([vgeom.vvert_end for vgeom in vgeoms], dtype=gs.np_int),
+                np_vgeoms_vface_end=np.array([vgeom.vface_end for vgeom in vgeoms], dtype=gs.np_int),
+                vgeoms_pos=self._vgeoms_info.pos,
+                vgeoms_quat=self._vgeoms_info.quat,
+                vgeoms_link_idx=self._vgeoms_info.link_idx,
+                vgeoms_vvert_start=self._vgeoms_info.vvert_start,
+                vgeoms_vvert_end=self._vgeoms_info.vvert_end,
+                vgeoms_vvert_num=self._vgeoms_info.vvert_num,
+                vgeoms_vface_start=self._vgeoms_info.vface_start,
+                vgeoms_vface_end=self._vgeoms_info.vface_end,
+                vgeoms_vface_num=self._vgeoms_info.vface_num,
+            )
+
+            np.testing.assert_allclose(self._vgeoms_info.pos.to_numpy(), self.vgeoms_info.pos.to_numpy())
+            np.testing.assert_allclose(self._vgeoms_info.quat.to_numpy(), self.vgeoms_info.quat.to_numpy())
+            np.testing.assert_allclose(self._vgeoms_info.link_idx.to_numpy(), self.vgeoms_info.link_idx.to_numpy())
+            np.testing.assert_allclose(
+                self._vgeoms_info.vvert_start.to_numpy(), self.vgeoms_info.vvert_start.to_numpy()
+            )
+            np.testing.assert_allclose(self._vgeoms_info.vvert_end.to_numpy(), self.vgeoms_info.vvert_end.to_numpy())
+            np.testing.assert_allclose(self._vgeoms_info.vvert_num.to_numpy(), self.vgeoms_info.vvert_num.to_numpy())
+            np.testing.assert_allclose(
+                self._vgeoms_info.vface_start.to_numpy(), self.vgeoms_info.vface_start.to_numpy()
+            )
+            np.testing.assert_allclose(self._vgeoms_info.vface_end.to_numpy(), self.vgeoms_info.vface_end.to_numpy())
+            np.testing.assert_allclose(self._vgeoms_info.vface_num.to_numpy(), self.vgeoms_info.vface_num.to_numpy())
 
     @ti.kernel
     def _kernel_init_vgeom_fields(

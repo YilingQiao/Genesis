@@ -14,10 +14,12 @@ def vec_types(is_ndarray: bool):
     ns = SimpleNamespace(
         V2=choose(gs.ti_vec2),
         V3=choose(gs.ti_vec3),
+        V4=choose(gs.ti_vec4),
         V7=choose(gs.ti_vec7),
         F=choose(gs.ti_float),
         I=choose(gs.ti_int),
         IV3=choose(gs.ti_ivec3),
+        G=ti.types.ndarray() if is_ndarray else ti.template(),
     )
 
     return ns
@@ -36,7 +38,7 @@ class DataClass:
 
 @ti.data_oriented
 class GlobalData(DataClass):
-    def __init__(self, is_ndarray: bool, n_dofs: int, n_entities: int, f_batch: Callable):
+    def __init__(self, is_ndarray: bool, n_dofs: int, n_entities: int, n_geoms: int, f_batch: Callable):
         super().__init__(is_ndarray)
 
         self.mass_mat = self.VT(dtype=gs.ti_float, shape=f_batch((n_dofs, n_dofs)))
@@ -47,6 +49,8 @@ class GlobalData(DataClass):
         self.mass_parent_mask = self.VT(dtype=gs.ti_float, shape=(n_dofs, n_dofs))
 
         self.meaninertia = self.VT(dtype=gs.ti_float, shape=f_batch())
+
+        self.geoms_init_AABB = self.VT(dtype=gs.ti_vec3, shape=(n_geoms, 8))
 
 
 @ti.data_oriented
@@ -90,15 +94,93 @@ class VfacesInfo(DataClass):
         self.vgeom_idx = self.VT(dtype=gs.ti_int, shape=(n_vfaces,))
 
 
-# struct_vvert_info = ti.types.struct(
-#     init_pos=gs.ti_vec3,
-#     init_vnormal=gs.ti_vec3,
-#     vgeom_idx=gs.ti_int,
+# struct_geom_state = ti.types.struct(
+#     pos=gs.ti_vec3,
+#     quat=gs.ti_vec4,
+#     aabb_min=gs.ti_vec3,
+#     aabb_max=gs.ti_vec3,
+#     verts_updated=gs.ti_int,
+#     min_buffer_idx=gs.ti_int,
+#     max_buffer_idx=gs.ti_int,
+#     hibernated=gs.ti_int,
+#     friction_ratio=gs.ti_float,
 # )
-# struct_vface_info = ti.types.struct(
-#     vverts_idx=gs.ti_ivec3,
-#     vgeom_idx=gs.ti_int,
-# )
+
+
+@ti.data_oriented
+class GeomsState(DataClass):
+    def __init__(self, is_ndarray: bool, n_geoms: int, f_batch: Callable):
+        super().__init__(is_ndarray)
+
+        self.pos = self.VT(dtype=gs.ti_vec3, shape=f_batch((n_geoms,)))
+        self.quat = self.VT(dtype=gs.ti_vec4, shape=f_batch((n_geoms,)))
+        self.aabb_min = self.VT(dtype=gs.ti_vec3, shape=f_batch((n_geoms,)))
+        self.aabb_max = self.VT(dtype=gs.ti_vec3, shape=f_batch((n_geoms,)))
+        self.verts_updated = self.VT(dtype=gs.ti_int, shape=f_batch((n_geoms,)))
+        self.min_buffer_idx = self.VT(dtype=gs.ti_int, shape=f_batch((n_geoms,)))
+        self.max_buffer_idx = self.VT(dtype=gs.ti_int, shape=f_batch((n_geoms,)))
+        self.hibernated = self.VT(dtype=gs.ti_int, shape=f_batch((n_geoms,)))
+        self.friction_ratio = self.VT(dtype=gs.ti_float, shape=f_batch((n_geoms,)))
+
+
+@ti.data_oriented
+class GeomsInfo(DataClass):
+    def __init__(self, is_ndarray: bool, n_geoms: int):
+        super().__init__(is_ndarray)
+
+        self.pos = self.VT(dtype=gs.ti_vec3, shape=(n_geoms,))
+        self.center = self.VT(dtype=gs.ti_vec3, shape=(n_geoms,))
+        self.quat = self.VT(dtype=gs.ti_vec4, shape=(n_geoms,))
+        self.data = self.VT(dtype=gs.ti_vec7, shape=(n_geoms,))
+        self.link_idx = self.VT(dtype=gs.ti_int, shape=(n_geoms,))
+        self.type = self.VT(dtype=gs.ti_int, shape=(n_geoms,))
+        self.friction = self.VT(dtype=gs.ti_float, shape=(n_geoms,))
+        self.sol_params = self.VT(dtype=gs.ti_vec7, shape=(n_geoms,))
+        self.vert_num = self.VT(dtype=gs.ti_int, shape=(n_geoms,))
+        self.vert_start = self.VT(dtype=gs.ti_int, shape=(n_geoms,))
+        self.vert_end = self.VT(dtype=gs.ti_int, shape=(n_geoms,))
+        self.verts_state_start = self.VT(dtype=gs.ti_int, shape=(n_geoms,))
+        self.verts_state_end = self.VT(dtype=gs.ti_int, shape=(n_geoms,))
+        self.face_num = self.VT(dtype=gs.ti_int, shape=(n_geoms,))
+        self.face_start = self.VT(dtype=gs.ti_int, shape=(n_geoms,))
+        self.face_end = self.VT(dtype=gs.ti_int, shape=(n_geoms,))
+        self.edge_num = self.VT(dtype=gs.ti_int, shape=(n_geoms,))
+        self.edge_start = self.VT(dtype=gs.ti_int, shape=(n_geoms,))
+        self.edge_end = self.VT(dtype=gs.ti_int, shape=(n_geoms,))
+        self.is_convex = self.VT(dtype=gs.ti_int, shape=(n_geoms,))
+        self.needs_coup = self.VT(dtype=gs.ti_int, shape=(n_geoms,))
+        self.contype = self.VT(dtype=gs.ti_int, shape=(n_geoms,))
+        self.conaffinity = self.VT(dtype=gs.ti_int, shape=(n_geoms,))
+        self.coup_friction = self.VT(dtype=gs.ti_float, shape=(n_geoms,))
+        self.coup_softness = self.VT(dtype=gs.ti_float, shape=(n_geoms,))
+        self.coup_restitution = self.VT(dtype=gs.ti_float, shape=(n_geoms,))
+        self.is_free = self.VT(dtype=gs.ti_int, shape=(n_geoms,))
+        self.is_decomposed = self.VT(dtype=gs.ti_int, shape=(n_geoms,))
+
+
+@ti.data_oriented
+class VgeomsInfo(DataClass):
+    def __init__(self, is_ndarray: bool, n_vgeoms: int):
+        super().__init__(is_ndarray)
+
+        self.pos = self.VT(dtype=gs.ti_vec3, shape=(n_vgeoms,))
+        self.quat = self.VT(dtype=gs.ti_vec4, shape=(n_vgeoms,))
+        self.link_idx = self.VT(dtype=gs.ti_int, shape=(n_vgeoms,))
+        self.vvert_num = self.VT(dtype=gs.ti_int, shape=(n_vgeoms,))
+        self.vvert_start = self.VT(dtype=gs.ti_int, shape=(n_vgeoms,))
+        self.vvert_end = self.VT(dtype=gs.ti_int, shape=(n_vgeoms,))
+        self.vface_num = self.VT(dtype=gs.ti_int, shape=(n_vgeoms,))
+        self.vface_start = self.VT(dtype=gs.ti_int, shape=(n_vgeoms,))
+        self.vface_end = self.VT(dtype=gs.ti_int, shape=(n_vgeoms,))
+
+
+@ti.data_oriented
+class VgeomsState(DataClass):
+    def __init__(self, is_ndarray: bool, n_vgeoms: int, f_batch: Callable):
+        super().__init__(is_ndarray)
+
+        self.pos = self.VT(dtype=gs.ti_vec3, shape=f_batch((n_vgeoms,)))
+        self.quat = self.VT(dtype=gs.ti_vec4, shape=f_batch((n_vgeoms,)))
 
 
 @ti.data_oriented
@@ -184,4 +266,104 @@ class DofsState(DataClass):
         self.ctrl_pos = self.VT(dtype=gs.ti_float, shape=shape)
         self.ctrl_vel = self.VT(dtype=gs.ti_float, shape=shape)
         self.ctrl_mode = self.VT(dtype=gs.ti_int, shape=shape)
+        self.hibernated = self.VT(dtype=gs.ti_int, shape=shape)
+
+
+# struct_link_info = ti.types.struct(
+#     parent_idx=gs.ti_int,
+#     root_idx=gs.ti_int,
+#     q_start=gs.ti_int,
+#     dof_start=gs.ti_int,
+#     joint_start=gs.ti_int,
+#     q_end=gs.ti_int,
+#     dof_end=gs.ti_int,
+#     joint_end=gs.ti_int,
+#     n_dofs=gs.ti_int,
+#     pos=gs.ti_vec3,
+#     quat=gs.ti_vec4,
+#     invweight=gs.ti_vec2,
+#     is_fixed=gs.ti_int,
+#     inertial_pos=gs.ti_vec3,
+#     inertial_quat=gs.ti_vec4,
+#     inertial_i=gs.ti_mat3,
+#     inertial_mass=gs.ti_float,
+#     entity_idx=gs.ti_int,  # entity.idx_in_solver
+# )
+@ti.data_oriented
+class LinksInfo(DataClass):
+    def __init__(self, is_ndarray: bool, shape: tuple):
+        super().__init__(is_ndarray)
+
+        self.parent_idx = self.VT(dtype=gs.ti_int, shape=shape)
+        self.root_idx = self.VT(dtype=gs.ti_int, shape=shape)
+        self.q_start = self.VT(dtype=gs.ti_int, shape=shape)
+        self.dof_start = self.VT(dtype=gs.ti_int, shape=shape)
+        self.joint_start = self.VT(dtype=gs.ti_int, shape=shape)
+        self.q_end = self.VT(dtype=gs.ti_int, shape=shape)
+        self.dof_end = self.VT(dtype=gs.ti_int, shape=shape)
+        self.joint_end = self.VT(dtype=gs.ti_int, shape=shape)
+        self.n_dofs = self.VT(dtype=gs.ti_int, shape=shape)
+        self.pos = self.VT(dtype=gs.ti_vec3, shape=shape)
+        self.quat = self.VT(dtype=gs.ti_vec4, shape=shape)
+        self.invweight = self.VT(dtype=gs.ti_vec2, shape=shape)
+        self.is_fixed = self.VT(dtype=gs.ti_int, shape=shape)
+        self.inertial_pos = self.VT(dtype=gs.ti_vec3, shape=shape)
+        self.inertial_quat = self.VT(dtype=gs.ti_vec4, shape=shape)
+        self.inertial_i = self.VT(dtype=gs.ti_mat3, shape=shape)
+        self.inertial_mass = self.VT(dtype=gs.ti_float, shape=shape)
+        self.entity_idx = self.VT(dtype=gs.ti_int, shape=shape)
+
+
+@ti.data_oriented
+class JointInfo(DataClass):
+    def __init__(self, is_ndarray: bool, shape: tuple):
+        super().__init__(is_ndarray)
+
+        self.type = self.VT(dtype=gs.ti_int, shape=shape)
+        self.sol_params = self.VT(dtype=gs.ti_vec7, shape=shape)
+        self.q_start = self.VT(dtype=gs.ti_int, shape=shape)
+        self.dof_start = self.VT(dtype=gs.ti_int, shape=shape)
+        self.q_end = self.VT(dtype=gs.ti_int, shape=shape)
+        self.dof_end = self.VT(dtype=gs.ti_int, shape=shape)
+        self.n_dofs = self.VT(dtype=gs.ti_int, shape=shape)
+        self.pos = self.VT(dtype=gs.ti_vec3, shape=shape)
+
+
+@ti.data_oriented
+class LinksState(DataClass):
+    def __init__(self, is_ndarray: bool, shape: tuple):
+        super().__init__(is_ndarray)
+
+        self.cinr_inertial = self.VT(dtype=gs.ti_mat3, shape=shape)
+        self.cinr_pos = self.VT(dtype=gs.ti_vec3, shape=shape)
+        self.cinr_quat = self.VT(dtype=gs.ti_vec4, shape=shape)
+        self.cinr_mass = self.VT(dtype=gs.ti_float, shape=shape)
+        self.crb_inertial = self.VT(dtype=gs.ti_mat3, shape=shape)
+        self.crb_pos = self.VT(dtype=gs.ti_vec3, shape=shape)
+        self.crb_quat = self.VT(dtype=gs.ti_vec4, shape=shape)
+        self.crb_mass = self.VT(dtype=gs.ti_float, shape=shape)
+        self.cdd_vel = self.VT(dtype=gs.ti_vec3, shape=shape)
+        self.cdd_ang = self.VT(dtype=gs.ti_vec3, shape=shape)
+        self.pos = self.VT(dtype=gs.ti_vec3, shape=shape)
+        self.quat = self.VT(dtype=gs.ti_vec4, shape=shape)
+        self.ang = self.VT(dtype=gs.ti_vec3, shape=shape)
+        self.vel = self.VT(dtype=gs.ti_vec3, shape=shape)
+        self.i_pos = self.VT(dtype=gs.ti_vec3, shape=shape)
+        self.i_quat = self.VT(dtype=gs.ti_vec4, shape=shape)
+        self.j_pos = self.VT(dtype=gs.ti_vec3, shape=shape)
+        self.j_quat = self.VT(dtype=gs.ti_vec4, shape=shape)
+        self.j_vel = self.VT(dtype=gs.ti_vec3, shape=shape)
+        self.j_ang = self.VT(dtype=gs.ti_vec3, shape=shape)
+        self.cd_ang = self.VT(dtype=gs.ti_vec3, shape=shape)
+        self.cd_vel = self.VT(dtype=gs.ti_vec3, shape=shape)
+        self.root_COM = self.VT(dtype=gs.ti_vec3, shape=shape)
+        self.mass_sum = self.VT(dtype=gs.ti_float, shape=shape)
+        self.COM = self.VT(dtype=gs.ti_vec3, shape=shape)
+        self.mass_shift = self.VT(dtype=gs.ti_float, shape=shape)
+        self.i_pos_shift = self.VT(dtype=gs.ti_vec3, shape=shape)
+        self.cfrc_flat_ang = self.VT(dtype=gs.ti_vec3, shape=shape)
+        self.cfrc_flat_vel = self.VT(dtype=gs.ti_vec3, shape=shape)
+        self.cfrc_ext_ang = self.VT(dtype=gs.ti_vec3, shape=shape)
+        self.cfrc_ext_vel = self.VT(dtype=gs.ti_vec3, shape=shape)
+        self.contact_force = self.VT(dtype=gs.ti_vec3, shape=shape)
         self.hibernated = self.VT(dtype=gs.ti_int, shape=shape)
