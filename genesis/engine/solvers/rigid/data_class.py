@@ -19,6 +19,7 @@ def vec_types(is_ndarray: bool):
         F=choose(gs.ti_float),
         I=choose(gs.ti_int),
         IV3=choose(gs.ti_ivec3),
+        M3=choose(gs.ti_mat3),
         G=ti.types.ndarray() if is_ndarray else ti.template(),
     )
 
@@ -269,26 +270,6 @@ class DofsState(DataClass):
         self.hibernated = self.VT(dtype=gs.ti_int, shape=shape)
 
 
-# struct_link_info = ti.types.struct(
-#     parent_idx=gs.ti_int,
-#     root_idx=gs.ti_int,
-#     q_start=gs.ti_int,
-#     dof_start=gs.ti_int,
-#     joint_start=gs.ti_int,
-#     q_end=gs.ti_int,
-#     dof_end=gs.ti_int,
-#     joint_end=gs.ti_int,
-#     n_dofs=gs.ti_int,
-#     pos=gs.ti_vec3,
-#     quat=gs.ti_vec4,
-#     invweight=gs.ti_vec2,
-#     is_fixed=gs.ti_int,
-#     inertial_pos=gs.ti_vec3,
-#     inertial_quat=gs.ti_vec4,
-#     inertial_i=gs.ti_mat3,
-#     inertial_mass=gs.ti_float,
-#     entity_idx=gs.ti_int,  # entity.idx_in_solver
-# )
 @ti.data_oriented
 class LinksInfo(DataClass):
     def __init__(self, is_ndarray: bool, shape: tuple):
@@ -315,7 +296,21 @@ class LinksInfo(DataClass):
 
 
 @ti.data_oriented
-class JointInfo(DataClass):
+class JointsInfo(DataClass):
+    def __init__(self, is_ndarray: bool, shape: tuple):
+        super().__init__(is_ndarray)
+
+        self.type = self.VT(dtype=gs.ti_int, shape=shape)
+        self.sol_params = self.VT(dtype=gs.ti_vec7, shape=shape)
+        self.q_start = self.VT(dtype=gs.ti_int, shape=shape)
+        self.dof_start = self.VT(dtype=gs.ti_int, shape=shape)
+        self.q_end = self.VT(dtype=gs.ti_int, shape=shape)
+        self.dof_end = self.VT(dtype=gs.ti_int, shape=shape)
+        self.n_dofs = self.VT(dtype=gs.ti_int, shape=shape)
+        self.pos = self.VT(dtype=gs.ti_vec3, shape=shape)
+
+@ti.data_oriented   
+class JointsInfo(DataClass):
     def __init__(self, is_ndarray: bool, shape: tuple):
         super().__init__(is_ndarray)
 
@@ -367,3 +362,12 @@ class LinksState(DataClass):
         self.cfrc_ext_vel = self.VT(dtype=gs.ti_vec3, shape=shape)
         self.contact_force = self.VT(dtype=gs.ti_vec3, shape=shape)
         self.hibernated = self.VT(dtype=gs.ti_int, shape=shape)
+
+@ti.data_oriented
+class JointsState(DataClass):
+    def __init__(self, is_ndarray: bool, shape: tuple):
+        super().__init__(is_ndarray)
+
+        self.xanchor = self.VT(dtype=gs.ti_vec3, shape=shape)
+        self.xaxis = self.VT(dtype=gs.ti_vec3, shape=shape)
+

@@ -474,7 +474,7 @@ class RigidSolver(Solver):
                 dofs_info_force_range: VT.V2,
                 dofs_state_ctrl_mode: VT.I,
             ):
-                ti.loop_config(serialize=self._para_level < gs.PARA_LEVEL.PARTIAL)
+                ti.loop_config(serialize=is_serial)
                 for I in ti.grouped(self.dofs_info):
                     i = I[0]  # batching (if any) will be the second dim
 
@@ -779,20 +779,293 @@ class RigidSolver(Solver):
         self.links_T = ti.Matrix.field(n=4, m=4, dtype=gs.ti_float, shape=self.n_links)
 
         ############################################################ ndarray
+        from .data_class import LinksInfo, LinksState, JointsInfo
         # TODO: hibernation
         # if self._use_hibernation:
         #     self.n_awake_links = ti.field(dtype=gs.ti_int, shape=self._B)
         #     self.awake_links = ti.field(dtype=gs.ti_int, shape=self._batch_shape(self.n_links_))
 
+        links = self.links
+
         links_info_shape = self._batch_shape(self.n_links) if self._options.batch_links_info else self.n_links
-        self.links_info = struct_link_info.field(shape=links_info_shape, needs_grad=False, layout=ti.Layout.SOA)
-        self.links_state = struct_link_state.field(
-            shape=self._batch_shape(self.n_links), needs_grad=False, layout=ti.Layout.SOA
-        )
+        self._links_info = LinksInfo(is_ndarray=True, shape=links_info_shape)
+        self._links_state = LinksState(is_ndarray=True, shape=self._batch_shape(self.n_links))
+        joints_info_shape = self._batch_shape(self.n_joints) if self._options.batch_joints_info else self.n_joints
+        self._joints_info = JointsInfo(is_ndarray=True, shape=joints_info_shape)
+
 
         links = self.links
 
-        print("init_geom_fields")
+        def make_kernel_init_link_fields(is_ndarray: bool, is_serial: bool = False):
+            VT = vec_types(is_ndarray)
+
+            @ti.kernel
+            def _kernel_init_link_fields(
+                np_links_parent_idx: ti.types.ndarray(),
+                np_links_root_idx: ti.types.ndarray(),
+                np_links_q_start: ti.types.ndarray(),
+                np_links_dof_start: ti.types.ndarray(),
+                np_links_joint_start: ti.types.ndarray(),
+                np_links_q_end: ti.types.ndarray(),
+                np_links_dof_end: ti.types.ndarray(),
+                np_links_joint_end: ti.types.ndarray(),
+                np_links_invweight: ti.types.ndarray(),
+                np_links_is_fixed: ti.types.ndarray(),
+                np_links_pos: ti.types.ndarray(),
+                np_links_quat: ti.types.ndarray(),
+                np_links_inertial_pos: ti.types.ndarray(),
+                np_links_inertial_quat: ti.types.ndarray(),
+                np_links_inertial_i: ti.types.ndarray(),
+                np_links_inertial_mass: ti.types.ndarray(),
+                np_links_entity_idx: ti.types.ndarray(),    
+                
+                links_info_parent_idx: VT.I,
+                links_info_root_idx: VT.I,
+                links_info_q_start: VT.I,
+                links_info_dof_start: VT.I,
+                links_info_joint_start: VT.I,
+                links_info_q_end: VT.I,
+                links_info_dof_end: VT.I,
+                links_info_joint_end: VT.I,
+                links_info_n_dofs: VT.I,
+                links_info_invweight: VT.V2,
+                links_info_is_fixed: VT.I,
+                links_info_pos: VT.V3,
+                links_info_quat: VT.V4,
+                links_info_inertial_pos: VT.V3,
+                links_info_inertial_quat: VT.V4,
+                links_info_inertial_i: VT.M3,
+                links_info_inertial_mass: VT.F,
+                links_info_entity_idx: VT.I,
+                
+                links_state_pos: VT.V3,
+                links_state_quat: VT.V4,
+                links_state_i_pos_shift: VT.V3,
+                links_state_mass_shift: VT.F,
+                links_state_hibernated: VT.I,
+                
+            ):
+                ti.loop_config(serialize=is_serial)
+                for I in ti.grouped(links_info_parent_idx):
+                    i = I[0]
+
+                    links_info_parent_idx[I] = np_links_parent_idx[i]
+                    links_info_root_idx[I] = np_links_root_idx[i]
+                    links_info_q_start[I] = np_links_q_start[i]
+                    links_info_dof_start[I] = np_links_dof_start[i]
+                    
+                    links_info_joint_start[I] = np_links_joint_start[i]
+                    links_info_q_end[I] = np_links_q_end[i]
+                    links_info_dof_end[I] = np_links_dof_end[i]
+                    links_info_joint_end[I] = np_links_joint_end[i]
+
+                    links_info_n_dofs[I] = np_links_dof_end[i] - np_links_dof_start[i]
+                    links_info_is_fixed[I] = np_links_is_fixed[i]
+                    links_info_entity_idx[I] = np_links_entity_idx[i]
+
+                    for j in ti.static(range(2)):
+                        links_info_invweight[I][j] = np_links_invweight[i, j]
+
+                    for j in ti.static(range(4)):
+                        links_info_quat[I][j] = np_links_quat[i, j]
+                        links_info_inertial_quat[I][j] = np_links_inertial_quat[i, j]
+
+                    for j in ti.static(range(3)):
+                        links_info_inertial_pos[I][j] = np_links_inertial_pos[i, j]
+                        links_info_pos[I][j] = np_links_pos[i, j]
+
+                    links_info_inertial_mass[I] = np_links_inertial_mass[i]
+                    for j1 in ti.static(range(3)):
+                        for j2 in ti.static(range(3)):
+                            links_info_inertial_i[I][j1, j2] = np_links_inertial_i[i, j1, j2]
+
+
+                ti.loop_config(serialize=is_serial)
+                for i, b in ti.ndrange(links_state_pos.shape[0], links_state_pos.shape[1]):
+                    # Update state for root fixed link. Their state will not be updated in forward kinematics later but can be manually changed by user.
+                    if np_links_parent_idx[i] == -1 and np_links_is_fixed[i]:
+                        for j in ti.static(range(4)):
+                            links_state_quat[i, b][j] = np_links_quat[i, j]
+
+                        for j in ti.static(range(3)):
+                            links_state_pos[i, b][j] = np_links_pos[i, j]
+
+                    for j in ti.static(range(3)):
+                        links_state_i_pos_shift[i, b][j] = 0.0
+                    links_state_mass_shift[i, b] = 0.0
+
+                if ti.static(self._use_hibernation):
+                    ti.loop_config(serialize=is_serial)
+                    for i, b in ti.ndrange(links_state_hibernated.shape[0], links_state_hibernated.shape[1]):
+                        links_state_hibernated[i, b] = False
+
+                        # TODO: awake_links!
+                        # self.awake_links[i, b] = i
+
+                    # TODO: n_awake_links!
+                    # ti.loop_config(serialize=self._para_level < gs.PARA_LEVEL.PARTIAL)
+                    # for b in range(self._B):
+                    #     self.n_awake_links[b] = self.n_links
+
+
+            return _kernel_init_link_fields
+
+        self._kernel_init_link_fields = make_kernel_init_link_fields(is_ndarray=is_ndarray)
+                
+
+
+        self._kernel_init_link_fields(
+            np_links_parent_idx=np.array([link.parent_idx for link in links], dtype=gs.np_int),
+            np_links_root_idx=np.array([link.root_idx for link in links], dtype=gs.np_int),
+            np_links_q_start=np.array([link.q_start for link in links], dtype=gs.np_int),
+            np_links_dof_start=np.array([link.dof_start for link in links], dtype=gs.np_int),
+            np_links_joint_start=np.array([link.joint_start for link in links], dtype=gs.np_int),
+            np_links_q_end=np.array([link.q_end for link in links], dtype=gs.np_int),
+            np_links_dof_end=np.array([link.dof_end for link in links], dtype=gs.np_int),
+            np_links_joint_end=np.array([link.joint_end for link in links], dtype=gs.np_int),
+            np_links_invweight=np.array([link.invweight for link in links], dtype=gs.np_float),
+            np_links_is_fixed=np.array([link.is_fixed for link in links], dtype=gs.np_int),
+            np_links_pos=np.array([link.pos for link in links], dtype=gs.np_float),
+            np_links_quat=np.array([link.quat for link in links], dtype=gs.np_float),
+            np_links_inertial_pos=np.array([link.inertial_pos for link in links], dtype=gs.np_float),
+            np_links_inertial_quat=np.array([link.inertial_quat for link in links], dtype=gs.np_float),
+            np_links_inertial_i=np.array([link.inertial_i for link in links], dtype=gs.np_float),
+            np_links_inertial_mass=np.array([link.inertial_mass for link in links], dtype=gs.np_float),
+            np_links_entity_idx=np.array([link._entity_idx_in_solver for link in links], dtype=gs.np_int),
+
+            
+            links_info_parent_idx=self._links_info.parent_idx,
+            links_info_root_idx=self._links_info.root_idx,
+            links_info_q_start=self._links_info.q_start,
+            links_info_dof_start=self._links_info.dof_start,
+            links_info_joint_start=self._links_info.joint_start,
+            links_info_q_end=self._links_info.q_end,
+            links_info_dof_end=self._links_info.dof_end,
+            links_info_joint_end=self._links_info.joint_end,
+            links_info_n_dofs=self._links_info.n_dofs,
+            links_info_invweight=self._links_info.invweight,
+            links_info_is_fixed=self._links_info.is_fixed,
+            links_info_pos=self._links_info.pos,
+            links_info_quat=self._links_info.quat,
+            links_info_inertial_pos=self._links_info.inertial_pos,
+            links_info_inertial_quat=self._links_info.inertial_quat,
+            links_info_inertial_i=self._links_info.inertial_i,
+            links_info_inertial_mass=self._links_info.inertial_mass,
+            links_info_entity_idx=self._links_info.entity_idx,
+
+            links_state_pos=self._links_state.pos,
+            links_state_quat=self._links_state.quat,
+            links_state_i_pos_shift=self._links_state.i_pos_shift,
+            links_state_mass_shift=self._links_state.mass_shift,
+            links_state_hibernated=self._links_state.hibernated,
+        )
+
+        # joints_info_shape = self._batch_shape(self.n_joints) if self._options.batch_joints_info else self.n_joints
+        # self.joints_info = struct_joint_info.field(shape=joints_info_shape, needs_grad=False, layout=ti.Layout.SOA)
+
+        # struct_joint_state = ti.types.struct(
+        #     xanchor=gs.ti_vec3,
+        #     xaxis=gs.ti_vec3,
+        # )
+
+        # self.joints_state = struct_joint_state.field(
+        #     shape=self._batch_shape(self.n_joints), needs_grad=False, layout=ti.Layout.SOA
+        # )
+
+        # Make sure that the constraints parameters are valid
+        joints = self.joints
+        joints_sol_params = np.concatenate([joint.sol_params for joint in joints], dtype=gs.np_float)
+        joints_sol_params = _sanitize_sol_params(
+            joints_sol_params, self._sol_constraint_min_resolve_time, self._sol_constraint_resolve_time
+        )
+
+        def make_kernel_init_joint_fields(is_ndarray: bool, is_serial: bool = False):
+            VT = vec_types(is_ndarray)
+
+            @ti.kernel
+            def _kernel_init_joint_fields(
+                np_joints_type: ti.types.ndarray(),
+                np_joints_sol_params: ti.types.ndarray(),
+                np_joints_q_start: ti.types.ndarray(),
+                np_joints_dof_start: ti.types.ndarray(),
+                np_joints_q_end: ti.types.ndarray(),
+                np_joints_dof_end: ti.types.ndarray(),
+                np_joints_pos: ti.types.ndarray(),
+
+                joints_info_type: VT.I,
+                joints_info_sol_params: VT.V7,
+                joints_info_q_start: VT.I,
+                joints_info_dof_start: VT.I,
+                joints_info_q_end: VT.I,
+                joints_info_dof_end: VT.I,
+                joints_info_pos: VT.V3,
+                joints_info_n_dofs: VT.I,
+            ):
+
+                ti.loop_config(serialize=is_serial)
+                for I in ti.grouped(joints_info_type):
+                    i = I[0]
+
+                    joints_info_type[I] = np_joints_type[i]
+                    joints_info_q_start[I] = np_joints_q_start[i]
+                    joints_info_dof_start[I] = np_joints_dof_start[i]
+                    joints_info_q_end[I] = np_joints_q_end[i]
+                    joints_info_dof_end[I] = np_joints_dof_end[i]
+                    joints_info_n_dofs[I] = np_joints_dof_end[i] - np_joints_dof_start[i]
+
+                    for j in ti.static(range(7)):
+                        joints_info_sol_params[I][j] = np_joints_sol_params[i, j]
+                    for j in ti.static(range(3)):
+                        joints_info_pos[I][j] = np_joints_pos[i, j]
+
+            return _kernel_init_joint_fields
+
+        self._kernel_init_joint_fields = make_kernel_init_joint_fields(is_ndarray=is_ndarray)
+
+
+        self._kernel_init_joint_fields(
+            np_joints_type=np.array([joint.type for joint in joints], dtype=gs.np_int),
+            np_joints_sol_params=joints_sol_params,
+            np_joints_q_start=np.array([joint.q_start for joint in joints], dtype=gs.np_int),
+            np_joints_dof_start=np.array([joint.dof_start for joint in joints], dtype=gs.np_int),
+            np_joints_q_end=np.array([joint.q_end for joint in joints], dtype=gs.np_int),
+            np_joints_dof_end=np.array([joint.dof_end for joint in joints], dtype=gs.np_int),
+            np_joints_pos=np.array([joint.pos for joint in joints], dtype=gs.np_float),
+
+            joints_info_type=self._joints_info.type,
+            joints_info_sol_params=self._joints_info.sol_params,
+            joints_info_q_start=self._joints_info.q_start,
+            joints_info_dof_start=self._joints_info.dof_start,
+            joints_info_q_end=self._joints_info.q_end,
+            joints_info_dof_end=self._joints_info.dof_end,
+            joints_info_pos=self._joints_info.pos,
+            joints_info_n_dofs=self._joints_info.n_dofs,
+        )
+
+        np.testing.assert_allclose(self._joints_info.pos.to_numpy(), self.joints_info.pos.to_numpy())
+        np.testing.assert_allclose(self._joints_info.sol_params.to_numpy(), self.joints_info.sol_params.to_numpy())
+        np.testing.assert_allclose(self._joints_info.q_start.to_numpy(), self.joints_info.q_start.to_numpy())
+        np.testing.assert_allclose(self._joints_info.dof_start.to_numpy(), self.joints_info.dof_start.to_numpy())
+        np.testing.assert_allclose(self._joints_info.q_end.to_numpy(), self.joints_info.q_end.to_numpy())
+        np.testing.assert_allclose(self._joints_info.dof_end.to_numpy(), self.joints_info.dof_end.to_numpy())
+        np.testing.assert_allclose(self._joints_info.n_dofs.to_numpy(), self.joints_info.n_dofs.to_numpy())
+        
+        np.testing.assert_allclose(self._links_info.pos.to_numpy(), self.links_info.pos.to_numpy())
+        np.testing.assert_allclose(self._links_info.quat.to_numpy(), self.links_info.quat.to_numpy())
+        np.testing.assert_allclose(self._links_info.inertial_pos.to_numpy(), self.links_info.inertial_pos.to_numpy())
+        np.testing.assert_allclose(self._links_info.inertial_quat.to_numpy(), self.links_info.inertial_quat.to_numpy())
+        np.testing.assert_allclose(self._links_info.inertial_i.to_numpy(), self.links_info.inertial_i.to_numpy())
+        np.testing.assert_allclose(self._links_info.inertial_mass.to_numpy(), self.links_info.inertial_mass.to_numpy())
+        np.testing.assert_allclose(self._links_info.entity_idx.to_numpy(), self.links_info.entity_idx.to_numpy())
+
+        np.testing.assert_allclose(self._links_state.pos.to_numpy(), self.links_state.pos.to_numpy())
+        np.testing.assert_allclose(self._links_state.quat.to_numpy(), self.links_state.quat.to_numpy())
+        np.testing.assert_allclose(self._links_state.i_pos_shift.to_numpy(), self.links_state.i_pos_shift.to_numpy())
+        np.testing.assert_allclose(self._links_state.mass_shift.to_numpy(), self.links_state.mass_shift.to_numpy())
+        np.testing.assert_allclose(self._links_state.hibernated.to_numpy(), self.links_state.hibernated.to_numpy())
+
+
+        print("init_links_fields")
         from IPython import embed
 
         embed()
