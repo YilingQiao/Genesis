@@ -25,16 +25,14 @@ def vec_types(is_ndarray: bool):
 
     return ns
 
+def get_array_type(is_ndarray: bool):
+    return ti.ndarray if is_ndarray else ti.field
 
 @ti.data_oriented
 class DataClass:
     def __init__(self, is_ndarray: bool):
         self.is_ndarray = is_ndarray
-
-        if is_ndarray:
-            self.VT = ti.ndarray
-        else:
-            self.VT = ti.field
+        self.VT = get_array_type(is_ndarray)
 
 
 @ti.data_oriented
@@ -45,12 +43,9 @@ class GlobalData(DataClass):
         self.mass_mat = self.VT(dtype=gs.ti_float, shape=f_batch((n_dofs, n_dofs)))
         self.mass_mat_L = self.VT(dtype=gs.ti_float, shape=f_batch((n_dofs, n_dofs)))
         self.mass_mat_D_inv = self.VT(dtype=gs.ti_float, shape=f_batch((n_dofs,)))
-
         self.mass_mat_mask = self.VT(dtype=gs.ti_int, shape=f_batch(n_entities))
         self.mass_parent_mask = self.VT(dtype=gs.ti_float, shape=(n_dofs, n_dofs))
-
         self.meaninertia = self.VT(dtype=gs.ti_float, shape=f_batch())
-
         self.geoms_init_AABB = self.VT(dtype=gs.ti_vec3, shape=(n_geoms, 8))
 
 
@@ -309,20 +304,6 @@ class JointsInfo(DataClass):
         self.n_dofs = self.VT(dtype=gs.ti_int, shape=shape)
         self.pos = self.VT(dtype=gs.ti_vec3, shape=shape)
 
-@ti.data_oriented   
-class JointsInfo(DataClass):
-    def __init__(self, is_ndarray: bool, shape: tuple):
-        super().__init__(is_ndarray)
-
-        self.type = self.VT(dtype=gs.ti_int, shape=shape)
-        self.sol_params = self.VT(dtype=gs.ti_vec7, shape=shape)
-        self.q_start = self.VT(dtype=gs.ti_int, shape=shape)
-        self.dof_start = self.VT(dtype=gs.ti_int, shape=shape)
-        self.q_end = self.VT(dtype=gs.ti_int, shape=shape)
-        self.dof_end = self.VT(dtype=gs.ti_int, shape=shape)
-        self.n_dofs = self.VT(dtype=gs.ti_int, shape=shape)
-        self.pos = self.VT(dtype=gs.ti_vec3, shape=shape)
-
 
 @ti.data_oriented
 class LinksState(DataClass):
@@ -371,3 +352,25 @@ class JointsState(DataClass):
         self.xanchor = self.VT(dtype=gs.ti_vec3, shape=shape)
         self.xaxis = self.VT(dtype=gs.ti_vec3, shape=shape)
 
+@ti.data_oriented
+class EntityInfo(DataClass):
+    def __init__(self, is_ndarray: bool, shape: tuple):
+        super().__init__(is_ndarray)
+
+        self.dof_start = self.VT(dtype=gs.ti_int, shape=shape)
+        self.dof_end = self.VT(dtype=gs.ti_int, shape=shape)
+        self.n_dofs = self.VT(dtype=gs.ti_int, shape=shape)
+        self.link_start = self.VT(dtype=gs.ti_int, shape=shape)
+        self.link_end = self.VT(dtype=gs.ti_int, shape=shape)
+        self.n_links = self.VT(dtype=gs.ti_int, shape=shape)
+        self.geom_start = self.VT(dtype=gs.ti_int, shape=shape)
+        self.geom_end = self.VT(dtype=gs.ti_int, shape=shape)
+        self.n_geoms = self.VT(dtype=gs.ti_int, shape=shape)
+        self.gravity_compensation = self.VT(dtype=gs.ti_float, shape=shape)
+
+@ti.data_oriented
+class EntityState(DataClass):
+    def __init__(self, is_ndarray: bool, shape: tuple):
+        super().__init__(is_ndarray)
+
+        self.hibernated = self.VT(dtype=gs.ti_int, shape=shape)
