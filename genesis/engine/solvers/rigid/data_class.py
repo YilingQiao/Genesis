@@ -6,6 +6,11 @@ import taichi as ti
 
 import genesis as gs
 
+_enable_self_collision = True
+_enable_adjacent_collision = False
+batch_links_info = False
+max_collision_pairs = 8192
+
 
 def vec_types(is_ndarray: bool):
     def choose(dtype):
@@ -47,6 +52,32 @@ class GlobalData(DataClass):
         self.mass_parent_mask = self.VT(dtype=gs.ti_float, shape=(n_dofs, n_dofs))
         self.meaninertia = self.VT(dtype=gs.ti_float, shape=f_batch())
         self.geoms_init_AABB = self.VT(dtype=gs.ti_vec3, shape=(n_geoms, 8))
+
+
+
+
+        ############## broad phase SAP ##############
+        # This buffer stores the AABBs along the search axis of all geoms
+        # This buffer stores indexes of active geoms during SAP search
+
+
+
+        self.sort_buffer_value = self.VT(dtype=gs.ti_float, shape=f_batch(2 * n_geoms))
+        self.sort_buffer_i_g = self.VT(dtype=gs.ti_int, shape=f_batch(2 * n_geoms))
+        self.sort_buffer_is_max = self.VT(dtype=gs.ti_int, shape=f_batch(2 * n_geoms))
+
+        self.active_buffer = self.VT(dtype=gs.ti_int, shape=f_batch(n_geoms))
+        self.n_broad_pairs = self.VT(dtype=gs.ti_int, shape=f_batch())
+        self.broad_collision_pairs = self.VT(dtype=gs.ti_int, shape=f_batch(max_collision_pairs, 2))
+
+        self.first_time = self.VT(dtype=gs.ti_int, shape=f_batch())
+    
+        self.contact_cache_normal = self.VT(dtype=gs.ti_vec3, shape=f_batch((n_geoms, n_geoms)))
+        self.contact_cache_penetration = self.VT(dtype=gs.ti_float, shape=f_batch((n_geoms, n_geoms)))
+        self.contact_cache_i_va_ws = self.VT(dtype=gs.ti_float, shape=f_batch((n_geoms, n_geoms)))
+        
+        ############## broad phase SAP ##############
+
 
 
 @ti.data_oriented

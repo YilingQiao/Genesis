@@ -20,7 +20,7 @@ from .sdf_decomp import SDF
 # TODO: is_ndarray as parameter
 from .data_class import DofsState, DofsInfo, GlobalData, vec_types, get_array_type
 
-is_ndarray = False
+is_ndarray = True
 
 # minimum constraint impedance
 IMP_MIN = 0.0001
@@ -58,6 +58,7 @@ class RigidSolver(Solver):
 
     def __init__(self, scene, sim, options):
         super().__init__(scene, sim, options)
+        self.is_ndarray = is_ndarray
 
         # options
         self._enable_collision = options.enable_collision
@@ -211,8 +212,8 @@ class RigidSolver(Solver):
 
             # self._init_envs_offset()
             # self._init_sdf()
-            # self._init_collider()
-            # self._init_constraint_solver()
+            self._init_collider()
+            self._init_constraint_solver()
 
             # # run complete FK once to update geoms state and mass matrix
             # self._kernel_forward_kinematics_links_geoms(self._scene._envs_idx)
@@ -3258,98 +3259,97 @@ class RigidSolver(Solver):
 
 
 
-        ### timing
+        ## timing
 
-        import time
-        n_iter = 10000
-        # field
-
-
-        # ndarray
-        ti.sync()
-        s_time = time.time()
-        for i in range(n_iter):
-            kernel_step_1(
-                entities_info_link_start=self._entities_info.link_start, 
-                entities_info_link_end=self._entities_info.link_end, 
-                links_info_pos=self._links_info.pos, 
-                links_info_quat=self._links_info.quat, 
-                links_info_parent_idx=self._links_info.parent_idx, 
-                links_info_joint_start=self._links_info.joint_start, 
-                links_info_joint_end=self._links_info.joint_end, 
-                links_info_is_fixed=self._links_info.is_fixed, 
-                links_info_n_dofs=self._links_info.n_dofs, 
-                links_info_root_idx=self._links_info.root_idx, 
-                links_info_inertial_pos=self._links_info.inertial_pos, 
-                links_info_inertial_quat=self._links_info.inertial_quat, 
-                links_info_inertial_mass=self._links_info.inertial_mass, 
-                links_info_inertial_i=self._links_info.inertial_i, 
-                joints_info_type=self._joints_info.type, 
-                joints_info_q_start=self._joints_info.q_start, 
-                joints_info_dof_start=self._joints_info.dof_start, 
-                joints_info_dof_end=self._joints_info.dof_end, 
-                joints_info_pos=self._joints_info.pos, 
-                dofs_info_motion_ang=self._dofs_info.motion_ang, 
-                dofs_info_motion_vel=self._dofs_info.motion_vel, 
-                links_state_pos=self._links_state.pos, 
-                links_state_quat=self._links_state.quat, 
-                joints_state_xanchor=self._joints_state.xanchor, 
-                joints_state_xaxis=self._joints_state.xaxis, 
-                dofs_state_pos=self._dofs_state.pos, 
-                rigid_qpos=self._qpos, 
-                rigid_qpos0=self._qpos0,
-
-                links_state_root_COM=self._links_state.root_COM,
-                links_state_mass_sum=self._links_state.mass_sum,
-                links_state_i_pos=self._links_state.i_pos,
-                links_state_i_quat=self._links_state.i_quat,
-                links_state_COM=self._links_state.COM,
-                links_state_cinr_inertial=self._links_state.cinr_inertial,
-                links_state_cinr_pos=self._links_state.cinr_pos,
-                links_state_cinr_quat=self._links_state.cinr_quat,
-                links_state_cinr_mass=self._links_state.cinr_mass,
-                links_state_j_pos=self._links_state.j_pos,
-                links_state_j_quat=self._links_state.j_quat,
-                links_state_i_pos_shift=self._links_state.i_pos_shift,
-                links_state_mass_shift=self._links_state.mass_shift,
-                links_state_cd_vel=self._links_state.cd_vel,
-                links_state_cd_ang=self._links_state.cd_ang,
-                links_state_vel=self._links_state.vel,
-                links_state_ang=self._links_state.ang,
-
-                dofs_state_vel=self._dofs_state.vel,
-                dofs_state_cdof_ang=self._dofs_state.cdof_ang,
-                dofs_state_cdof_vel=self._dofs_state.cdof_vel,
-                dofs_state_cdofvel_ang=self._dofs_state.cdofvel_ang,
-                dofs_state_cdofvel_vel=self._dofs_state.cdofvel_vel,
-                dofs_state_cdofd_ang=self._dofs_state.cdofd_ang,
-                dofs_state_cdofd_vel=self._dofs_state.cdofd_vel,
-
-                geoms_info_link_idx=self._geoms_info.link_idx,
-                geoms_info_pos=self._geoms_info.pos,
-                geoms_info_quat=self._geoms_info.quat,
-
-                geoms_state_pos=self._geoms_state.pos,
-                geoms_state_quat=self._geoms_state.quat,
-                geoms_state_verts_updated=self._geoms_state.verts_updated,
-
-            )
-        ti.sync()   
-        e_time = time.time()
-        print(f"ndarray time: {(e_time - s_time)*1000/n_iter : .4f} ms")
+        # import time
+        # n_iter = 10000
+        # # field
 
 
-        ti.sync()
-        s_time = time.time()
-        for i in range(n_iter):
-            self._kernel_step_1()
-        ti.sync()
-        e_time = time.time()
-        print(self._links_state.quat.to_numpy().shape, self.links_state.quat.to_numpy().shape)
-        print(f"field time: {(e_time - s_time)*1000/n_iter : .4f} ms")
+        # # ndarray
+        # ti.sync()
+        # s_time = time.time()
+        # for i in range(n_iter):
+        #     kernel_step_1(
+        #         entities_info_link_start=self._entities_info.link_start, 
+        #         entities_info_link_end=self._entities_info.link_end, 
+        #         links_info_pos=self._links_info.pos, 
+        #         links_info_quat=self._links_info.quat, 
+        #         links_info_parent_idx=self._links_info.parent_idx, 
+        #         links_info_joint_start=self._links_info.joint_start, 
+        #         links_info_joint_end=self._links_info.joint_end, 
+        #         links_info_is_fixed=self._links_info.is_fixed, 
+        #         links_info_n_dofs=self._links_info.n_dofs, 
+        #         links_info_root_idx=self._links_info.root_idx, 
+        #         links_info_inertial_pos=self._links_info.inertial_pos, 
+        #         links_info_inertial_quat=self._links_info.inertial_quat, 
+        #         links_info_inertial_mass=self._links_info.inertial_mass, 
+        #         links_info_inertial_i=self._links_info.inertial_i, 
+        #         joints_info_type=self._joints_info.type, 
+        #         joints_info_q_start=self._joints_info.q_start, 
+        #         joints_info_dof_start=self._joints_info.dof_start, 
+        #         joints_info_dof_end=self._joints_info.dof_end, 
+        #         joints_info_pos=self._joints_info.pos, 
+        #         dofs_info_motion_ang=self._dofs_info.motion_ang, 
+        #         dofs_info_motion_vel=self._dofs_info.motion_vel, 
+        #         links_state_pos=self._links_state.pos, 
+        #         links_state_quat=self._links_state.quat, 
+        #         joints_state_xanchor=self._joints_state.xanchor, 
+        #         joints_state_xaxis=self._joints_state.xaxis, 
+        #         dofs_state_pos=self._dofs_state.pos, 
+        #         rigid_qpos=self._qpos, 
+        #         rigid_qpos0=self._qpos0,
 
-        from IPython import embed
-        embed()
+        #         links_state_root_COM=self._links_state.root_COM,
+        #         links_state_mass_sum=self._links_state.mass_sum,
+        #         links_state_i_pos=self._links_state.i_pos,
+        #         links_state_i_quat=self._links_state.i_quat,
+        #         links_state_COM=self._links_state.COM,
+        #         links_state_cinr_inertial=self._links_state.cinr_inertial,
+        #         links_state_cinr_pos=self._links_state.cinr_pos,
+        #         links_state_cinr_quat=self._links_state.cinr_quat,
+        #         links_state_cinr_mass=self._links_state.cinr_mass,
+        #         links_state_j_pos=self._links_state.j_pos,
+        #         links_state_j_quat=self._links_state.j_quat,
+        #         links_state_i_pos_shift=self._links_state.i_pos_shift,
+        #         links_state_mass_shift=self._links_state.mass_shift,
+        #         links_state_cd_vel=self._links_state.cd_vel,
+        #         links_state_cd_ang=self._links_state.cd_ang,
+        #         links_state_vel=self._links_state.vel,
+        #         links_state_ang=self._links_state.ang,
+
+        #         dofs_state_vel=self._dofs_state.vel,
+        #         dofs_state_cdof_ang=self._dofs_state.cdof_ang,
+        #         dofs_state_cdof_vel=self._dofs_state.cdof_vel,
+        #         dofs_state_cdofvel_ang=self._dofs_state.cdofvel_ang,
+        #         dofs_state_cdofvel_vel=self._dofs_state.cdofvel_vel,
+        #         dofs_state_cdofd_ang=self._dofs_state.cdofd_ang,
+        #         dofs_state_cdofd_vel=self._dofs_state.cdofd_vel,
+
+        #         geoms_info_link_idx=self._geoms_info.link_idx,
+        #         geoms_info_pos=self._geoms_info.pos,
+        #         geoms_info_quat=self._geoms_info.quat,
+
+        #         geoms_state_pos=self._geoms_state.pos,
+        #         geoms_state_quat=self._geoms_state.quat,
+        #         geoms_state_verts_updated=self._geoms_state.verts_updated,
+
+        #     )
+        # ti.sync()   
+        # e_time = time.time()
+
+        # print("batch size", self._B, "is_ndarray", is_ndarray)
+        # print(f"new type time: {(e_time - s_time)*1000/n_iter : .4f} ms")
+
+
+        # ti.sync()
+        # s_time = time.time()
+        # for i in range(n_iter):
+        #     self._kernel_step_1()
+        # ti.sync()
+        # e_time = time.time()
+        # print(f"field time: {(e_time - s_time)*1000/n_iter : .4f} ms")
+        # exit()
         ############################################################ ndarray version
 
 
