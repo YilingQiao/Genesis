@@ -268,7 +268,6 @@ class Collider:
         self._func_broad_phase()
         timer.stamp("func_broad_phase")
 
-
         ############## NDARRAY ##############
         from genesis.engine.solvers.rigid.make_kernels import make_kernel_update_aabbs, make_kernel_reset_collider
 
@@ -285,26 +284,22 @@ class Collider:
             geoms_info_link_idx=self._solver._geoms_info.link_idx,
             first_time=self._solver._d.first_time,
         )
-        
+
         kernel_update_aabbs = make_kernel_update_aabbs(is_ndarray=self._solver.is_ndarray)
 
         kernel_update_aabbs(
             links_info_root_idx=self._solver._links_info.root_idx,
             links_info_parent_idx=self._solver._links_info.parent_idx,
             links_info_is_fixed=self._solver._links_info.is_fixed,
-
             geoms_info_link_idx=self._solver._geoms_info.link_idx,
             geoms_info_pos=self._solver._geoms_info.pos,
             geoms_info_quat=self._solver._geoms_info.quat,
-
             geoms_state_pos=self._solver._geoms_state.pos,
             geoms_state_quat=self._solver._geoms_state.quat,
             geoms_state_verts_updated=self._solver._geoms_state.verts_updated,
-
             geoms_init_AABB=self._solver._d.geoms_init_AABB,
             geoms_state_aabb_min=self._solver._geoms_state.aabb_min,
             geoms_state_aabb_max=self._solver._geoms_state.aabb_max,
-
             first_time=self._solver._d.first_time,
             sort_buffer_value=self._solver._d.sort_buffer_value,
             sort_buffer_i_g=self._solver._d.sort_buffer_i_g,
@@ -319,32 +314,45 @@ class Collider:
             broad_collision_pairs=self._solver._d.broad_collision_pairs,
             geoms_info_contype=self._solver._geoms_info.contype,
             geoms_info_conaffinity=self._solver._geoms_info.conaffinity,
-
         )
 
         np.testing.assert_allclose(self._solver._d.geoms_init_AABB.to_numpy(), self._solver.geoms_init_AABB.to_numpy())
-        np.testing.assert_allclose(self._solver._geoms_state.aabb_max.to_numpy(), self._solver._geoms_state.aabb_max.to_numpy())
-        np.testing.assert_allclose(self._solver._geoms_state.aabb_min.to_numpy(), self._solver._geoms_state.aabb_min.to_numpy())
+        np.testing.assert_allclose(
+            self._solver._geoms_state.aabb_max.to_numpy(), self._solver._geoms_state.aabb_max.to_numpy()
+        )
+        np.testing.assert_allclose(
+            self._solver._geoms_state.aabb_min.to_numpy(), self._solver._geoms_state.aabb_min.to_numpy()
+        )
 
-        np.testing.assert_allclose(self._solver._d.contact_cache_normal.to_numpy(), self.contact_cache.normal.to_numpy())
-        np.testing.assert_allclose(self._solver._d.contact_cache_penetration.to_numpy(), self.contact_cache.penetration.to_numpy())
+        np.testing.assert_allclose(
+            self._solver._d.contact_cache_normal.to_numpy(), self.contact_cache.normal.to_numpy()
+        )
+        np.testing.assert_allclose(
+            self._solver._d.contact_cache_penetration.to_numpy(), self.contact_cache.penetration.to_numpy()
+        )
 
+        np.testing.assert_allclose(self._solver._d.sort_buffer_i_g.to_numpy(), self.sort_buffer.i_g.to_numpy())
+        np.testing.assert_allclose(self._solver._d.sort_buffer_is_max.to_numpy(), self.sort_buffer.is_max.to_numpy())
+        np.testing.assert_allclose(self._solver._d.sort_buffer_value.to_numpy(), self.sort_buffer.value.to_numpy())
 
-        np.testing.assert_allclose(self._solver._d.sort_buffer_i_g.to_numpy(), self._solver._d.sort_buffer_i_g.to_numpy())
-        np.testing.assert_allclose(self._solver._d.sort_buffer_is_max.to_numpy(), self._solver._d.sort_buffer_is_max.to_numpy())
-        np.testing.assert_allclose(self._solver._d.sort_buffer_value.to_numpy(), self._solver._d.sort_buffer_value.to_numpy())
-
-
-        from IPython import embed
-        embed()
-        np.testing.assert_allclose(self._solver._d.broad_collision_pairs.to_numpy(), self.broad_collision_pairs.to_numpy())
-        np.testing.assert_allclose(self._solver._d.contact_cache_i_va_ws.to_numpy(), self.contact_cache.i_va_ws.to_numpy())
+        np.testing.assert_allclose(self._solver._d.first_time.to_numpy(), self.first_time.to_numpy())
+        np.testing.assert_allclose(self._solver._d.n_broad_pairs.to_numpy(), self.n_broad_pairs.to_numpy())
+        np.testing.assert_allclose(
+            self._solver._d.broad_collision_pairs.to_numpy(), self.broad_collision_pairs.to_numpy()
+        )
+        np.testing.assert_allclose(
+            self._solver._d.contact_cache_i_va_ws.to_numpy(), self.contact_cache.i_va_ws.to_numpy()
+        )
         np.testing.assert_allclose(self._solver._d.active_buffer.to_numpy(), self.active_buffer.to_numpy())
-
-
 
         self._func_narrow_phase()
         timer.stamp("func_narrow_phase")
+
+        print("narrow phase")
+        from IPython import embed
+
+        embed()
+
         if self._has_terrain:
             self._func_narrow_phase_terrain()
             timer.stamp("_func_narrow_phase_terrain")

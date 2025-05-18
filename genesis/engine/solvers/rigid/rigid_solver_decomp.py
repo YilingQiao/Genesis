@@ -779,6 +779,7 @@ class RigidSolver(Solver):
 
         ############################################################ ndarray
         from .data_class import LinksInfo, LinksState, JointsInfo, JointsState
+
         # TODO: hibernation
         # if self._use_hibernation:
         #     self.n_awake_links = ti.field(dtype=gs.ti_int, shape=self._B)
@@ -792,7 +793,6 @@ class RigidSolver(Solver):
         joints_info_shape = self._batch_shape(self.n_joints) if self._options.batch_joints_info else self.n_joints
         self._joints_info = JointsInfo(is_ndarray=is_ndarray, shape=joints_info_shape)
         self._joints_state = JointsState(is_ndarray=is_ndarray, shape=self._batch_shape(self.n_joints))
-
 
         links = self.links
 
@@ -817,8 +817,7 @@ class RigidSolver(Solver):
                 np_links_inertial_quat: ti.types.ndarray(),
                 np_links_inertial_i: ti.types.ndarray(),
                 np_links_inertial_mass: ti.types.ndarray(),
-                np_links_entity_idx: ti.types.ndarray(),    
-                
+                np_links_entity_idx: ti.types.ndarray(),
                 links_info_parent_idx: VT.I,
                 links_info_root_idx: VT.I,
                 links_info_q_start: VT.I,
@@ -837,13 +836,11 @@ class RigidSolver(Solver):
                 links_info_inertial_i: VT.M3,
                 links_info_inertial_mass: VT.F,
                 links_info_entity_idx: VT.I,
-                
                 links_state_pos: VT.V3,
                 links_state_quat: VT.V4,
                 links_state_i_pos_shift: VT.V3,
                 links_state_mass_shift: VT.F,
                 links_state_hibernated: VT.I,
-                
             ):
                 ti.loop_config(serialize=is_serial)
                 for I in ti.grouped(links_info_parent_idx):
@@ -853,7 +850,7 @@ class RigidSolver(Solver):
                     links_info_root_idx[I] = np_links_root_idx[i]
                     links_info_q_start[I] = np_links_q_start[i]
                     links_info_dof_start[I] = np_links_dof_start[i]
-                    
+
                     links_info_joint_start[I] = np_links_joint_start[i]
                     links_info_q_end[I] = np_links_q_end[i]
                     links_info_dof_end[I] = np_links_dof_end[i]
@@ -878,7 +875,6 @@ class RigidSolver(Solver):
                     for j1 in ti.static(range(3)):
                         for j2 in ti.static(range(3)):
                             links_info_inertial_i[I][j1, j2] = np_links_inertial_i[i, j1, j2]
-
 
                 ti.loop_config(serialize=is_serial)
                 for i, b in ti.ndrange(links_state_pos.shape[0], links_state_pos.shape[1]):
@@ -907,12 +903,9 @@ class RigidSolver(Solver):
                     # for b in range(self._B):
                     #     self.n_awake_links[b] = self.n_links
 
-
             return _kernel_init_link_fields
 
         self._kernel_init_link_fields = make_kernel_init_link_fields(is_ndarray=is_ndarray)
-                
-
 
         self._kernel_init_link_fields(
             np_links_parent_idx=np.array([link.parent_idx for link in links], dtype=gs.np_int),
@@ -932,8 +925,6 @@ class RigidSolver(Solver):
             np_links_inertial_i=np.array([link.inertial_i for link in links], dtype=gs.np_float),
             np_links_inertial_mass=np.array([link.inertial_mass for link in links], dtype=gs.np_float),
             np_links_entity_idx=np.array([link._entity_idx_in_solver for link in links], dtype=gs.np_int),
-
-            
             links_info_parent_idx=self._links_info.parent_idx,
             links_info_root_idx=self._links_info.root_idx,
             links_info_q_start=self._links_info.q_start,
@@ -952,7 +943,6 @@ class RigidSolver(Solver):
             links_info_inertial_i=self._links_info.inertial_i,
             links_info_inertial_mass=self._links_info.inertial_mass,
             links_info_entity_idx=self._links_info.entity_idx,
-
             links_state_pos=self._links_state.pos,
             links_state_quat=self._links_state.quat,
             links_state_i_pos_shift=self._links_state.i_pos_shift,
@@ -991,7 +981,6 @@ class RigidSolver(Solver):
                 np_joints_q_end: ti.types.ndarray(),
                 np_joints_dof_end: ti.types.ndarray(),
                 np_joints_pos: ti.types.ndarray(),
-
                 joints_info_type: VT.I,
                 joints_info_sol_params: VT.V7,
                 joints_info_q_start: VT.I,
@@ -1013,14 +1002,13 @@ class RigidSolver(Solver):
                     joints_info_n_dofs[I] = np_joints_dof_end[i] - np_joints_dof_start[i]
                     # print(np_joints_sol_params.shape, np_joints_sol_params[i][0])
                     for j in ti.static(range(7)):
-                        joints_info_sol_params[I][j] = np_joints_sol_params[i,j]
+                        joints_info_sol_params[I][j] = np_joints_sol_params[i, j]
                     for j in ti.static(range(3)):
-                        joints_info_pos[I][j] = np_joints_pos[i,j]
+                        joints_info_pos[I][j] = np_joints_pos[i, j]
 
             return _kernel_init_joint_fields
 
         self._kernel_init_joint_fields = make_kernel_init_joint_fields(is_ndarray=is_ndarray)
-
 
         self._kernel_init_joint_fields(
             np_joints_type=np.array([joint.type for joint in joints], dtype=gs.np_int),
@@ -1030,7 +1018,6 @@ class RigidSolver(Solver):
             np_joints_q_end=np.array([joint.q_end for joint in joints], dtype=gs.np_int),
             np_joints_dof_end=np.array([joint.dof_end for joint in joints], dtype=gs.np_int),
             np_joints_pos=np.array([joint.pos for joint in joints], dtype=gs.np_float),
-
             joints_info_type=self._joints_info.type,
             joints_info_sol_params=self._joints_info.sol_params,
             joints_info_q_start=self._joints_info.q_start,
@@ -1050,7 +1037,7 @@ class RigidSolver(Solver):
         np.testing.assert_allclose(self._joints_info.n_dofs.to_numpy(), self.joints_info.n_dofs.to_numpy())
         np.testing.assert_allclose(self._joints_info.type.to_numpy(), self.joints_info.type.to_numpy())
         np.testing.assert_allclose(self._joints_info.sol_params.to_numpy(), self.joints_info.sol_params.to_numpy())
-        
+
         np.testing.assert_allclose(self._links_info.pos.to_numpy(), self.links_info.pos.to_numpy())
         np.testing.assert_allclose(self._links_info.quat.to_numpy(), self.links_info.quat.to_numpy())
         np.testing.assert_allclose(self._links_info.inertial_pos.to_numpy(), self.links_info.inertial_pos.to_numpy())
@@ -1064,8 +1051,6 @@ class RigidSolver(Solver):
         np.testing.assert_allclose(self._links_state.i_pos_shift.to_numpy(), self.links_state.i_pos_shift.to_numpy())
         np.testing.assert_allclose(self._links_state.mass_shift.to_numpy(), self.links_state.mass_shift.to_numpy())
         np.testing.assert_allclose(self._links_state.hibernated.to_numpy(), self.links_state.hibernated.to_numpy())
-
-
 
         # TODO: change to VT
         VT = get_array_type(is_ndarray)
@@ -2192,8 +2177,7 @@ class RigidSolver(Solver):
                 np_entities_link_end: ti.types.ndarray(),
                 np_entities_geom_start: ti.types.ndarray(),
                 np_entities_geom_end: ti.types.ndarray(),
-                np_entities_gravity_compensation: ti.types.ndarray(),   
-
+                np_entities_gravity_compensation: ti.types.ndarray(),
                 entities_info_dof_start: VT.I,
                 entities_info_dof_end: VT.I,
                 entities_info_n_dofs: VT.I,
@@ -2237,7 +2221,6 @@ class RigidSolver(Solver):
                 np_entities_gravity_compensation=np.array(
                     [entity.gravity_compensation for entity in entities], dtype=gs.np_float
                 ),
-
                 entities_info_dof_start=self._entities_info.dof_start,
                 entities_info_dof_end=self._entities_info.dof_end,
                 entities_info_n_dofs=self._entities_info.n_dofs,
@@ -2250,18 +2233,24 @@ class RigidSolver(Solver):
                 entities_info_gravity_compensation=self._entities_info.gravity_compensation,
             )
 
-            np.testing.assert_allclose(self._entities_info.dof_start.to_numpy(), self.entities_info.dof_start.to_numpy())
+            np.testing.assert_allclose(
+                self._entities_info.dof_start.to_numpy(), self.entities_info.dof_start.to_numpy()
+            )
             np.testing.assert_allclose(self._entities_info.dof_end.to_numpy(), self.entities_info.dof_end.to_numpy())
             np.testing.assert_allclose(self._entities_info.n_dofs.to_numpy(), self.entities_info.n_dofs.to_numpy())
-            np.testing.assert_allclose(self._entities_info.link_start.to_numpy(), self.entities_info.link_start.to_numpy())
+            np.testing.assert_allclose(
+                self._entities_info.link_start.to_numpy(), self.entities_info.link_start.to_numpy()
+            )
             np.testing.assert_allclose(self._entities_info.link_end.to_numpy(), self.entities_info.link_end.to_numpy())
             np.testing.assert_allclose(self._entities_info.n_links.to_numpy(), self.entities_info.n_links.to_numpy())
-            np.testing.assert_allclose(self._entities_info.geom_start.to_numpy(), self.entities_info.geom_start.to_numpy())
+            np.testing.assert_allclose(
+                self._entities_info.geom_start.to_numpy(), self.entities_info.geom_start.to_numpy()
+            )
             np.testing.assert_allclose(self._entities_info.geom_end.to_numpy(), self.entities_info.geom_end.to_numpy())
             np.testing.assert_allclose(self._entities_info.n_geoms.to_numpy(), self.entities_info.n_geoms.to_numpy())
-            np.testing.assert_allclose(self._entities_info.gravity_compensation.to_numpy(), self.entities_info.gravity_compensation.to_numpy())
-            
-                
+            np.testing.assert_allclose(
+                self._entities_info.gravity_compensation.to_numpy(), self.entities_info.gravity_compensation.to_numpy()
+            )
 
     @ti.kernel
     def _kernel_init_entity_fields(
@@ -2731,7 +2720,6 @@ class RigidSolver(Solver):
     def substep(self):
         from genesis.utils.tools import create_timer
 
-
         timer = create_timer("rigid", level=1, ti_sync=True, skip_first_call=True)
         self._kernel_step_1()
         timer.stamp("kernel_step_1")
@@ -2761,21 +2749,15 @@ class RigidSolver(Solver):
                 joints_info_dof_start: VT.I,
                 joints_info_dof_end: VT.I,
                 joints_info_pos: VT.V3,
-
                 dofs_info_motion_ang: VT.V3,
                 dofs_info_motion_vel: VT.V3,
-
                 links_state_pos: VT.V3,
                 links_state_quat: VT.V4,
-
                 joints_state_xanchor: VT.V3,
                 joints_state_xaxis: VT.V3,
-
                 dofs_state_pos: VT.F,
-
                 rigid_qpos: VT.F,
                 rigid_qpos0: VT.F,
-
                 links_state_root_COM: VT.V3,
                 links_state_mass_sum: VT.F,
                 links_state_i_pos: VT.V3,
@@ -2793,7 +2775,6 @@ class RigidSolver(Solver):
                 links_state_cd_ang: VT.V3,
                 links_state_vel: VT.V3,
                 links_state_ang: VT.V3,
-
                 dofs_state_vel: VT.F,
                 dofs_state_cdof_ang: VT.V3,
                 dofs_state_cdof_vel: VT.V3,
@@ -2801,15 +2782,13 @@ class RigidSolver(Solver):
                 dofs_state_cdofvel_vel: VT.V3,
                 dofs_state_cdofd_ang: VT.V3,
                 dofs_state_cdofd_vel: VT.V3,
-
                 geoms_info_link_idx: VT.I,
                 geoms_info_pos: VT.V3,
                 geoms_info_quat: VT.V4,
-
                 geoms_state_pos: VT.V3,
                 geoms_state_quat: VT.V4,
                 geoms_state_verts_updated: VT.I,
-                ):
+            ):
 
                 ti.loop_config(serialize=is_serial)
                 for i_b in range(links_state_pos.shape[1]):
@@ -2835,7 +2814,11 @@ class RigidSolver(Solver):
                                 # compute axis and anchor
                                 if joint_type == gs.JOINT_TYPE.FREE:
                                     joints_state_xanchor[i_j, i_b] = ti.Vector(
-                                        [rigid_qpos[q_start, i_b], rigid_qpos[q_start + 1, i_b], rigid_qpos[q_start + 2, i_b]]
+                                        [
+                                            rigid_qpos[q_start, i_b],
+                                            rigid_qpos[q_start + 1, i_b],
+                                            rigid_qpos[q_start + 2, i_b],
+                                        ]
                                     )
                                     joints_state_xaxis[i_j, i_b] = ti.Vector([0.0, 0.0, 1.0])
                                 elif joint_type == gs.JOINT_TYPE.FIXED:
@@ -2847,12 +2830,18 @@ class RigidSolver(Solver):
                                     elif joint_type == gs.JOINT_TYPE.PRISMATIC:
                                         axis = dofs_info_motion_vel[I_d]
 
-                                    joints_state_xanchor[i_j, i_b] = gu.ti_transform_by_quat(joints_info_pos[I_j], quat) + pos
+                                    joints_state_xanchor[i_j, i_b] = (
+                                        gu.ti_transform_by_quat(joints_info_pos[I_j], quat) + pos
+                                    )
                                     joints_state_xaxis[i_j, i_b] = gu.ti_transform_by_quat(axis, quat)
 
                                 if joint_type == gs.JOINT_TYPE.FREE:
                                     pos = ti.Vector(
-                                        [rigid_qpos[q_start, i_b], rigid_qpos[q_start + 1, i_b], rigid_qpos[q_start + 2, i_b]],
+                                        [
+                                            rigid_qpos[q_start, i_b],
+                                            rigid_qpos[q_start + 1, i_b],
+                                            rigid_qpos[q_start + 2, i_b],
+                                        ],
                                         dt=gs.ti_float,
                                     )
                                     quat = ti.Vector(
@@ -2885,22 +2874,30 @@ class RigidSolver(Solver):
                                     for i in range(3):
                                         dofs_state_pos[dof_start + i, i_b] = xyz[i]
                                     quat = gu.ti_transform_quat_by_quat(qloc, quat)
-                                    pos = joints_state_xanchor[i_j, i_b] - gu.ti_transform_by_quat(joints_info_pos[I_j], quat)
+                                    pos = joints_state_xanchor[i_j, i_b] - gu.ti_transform_by_quat(
+                                        joints_info_pos[I_j], quat
+                                    )
                                 elif joint_type == gs.JOINT_TYPE.REVOLUTE:
                                     axis = dofs_info_motion_ang[I_d]
-                                    dofs_state_pos[dof_start, i_b] = rigid_qpos[q_start, i_b] - rigid_qpos0[q_start, i_b]
+                                    dofs_state_pos[dof_start, i_b] = (
+                                        rigid_qpos[q_start, i_b] - rigid_qpos0[q_start, i_b]
+                                    )
                                     qloc = gu.ti_rotvec_to_quat(axis * dofs_state_pos[dof_start, i_b])
                                     quat = gu.ti_transform_quat_by_quat(qloc, quat)
-                                    pos = joints_state_xanchor[i_j, i_b] - gu.ti_transform_by_quat(joints_info_pos[I_j], quat)
+                                    pos = joints_state_xanchor[i_j, i_b] - gu.ti_transform_by_quat(
+                                        joints_info_pos[I_j], quat
+                                    )
                                 else:  # joint_type == gs.JOINT_TYPE.PRISMATIC:
-                                    dofs_state_pos[dof_start, i_b] = rigid_qpos[q_start, i_b] - rigid_qpos0[q_start, i_b]
+                                    dofs_state_pos[dof_start, i_b] = (
+                                        rigid_qpos[q_start, i_b] - rigid_qpos0[q_start, i_b]
+                                    )
                                     pos = pos + joints_state_xaxis[i_j, i_b] * dofs_state_pos[dof_start, i_b]
 
                             # Skip link pose update for fixed root links to allow the user for manually overwriting them
                             if not (links_info_is_fixed[I_l] and links_info_joint_end[I_l] == -1):
                                 links_state_pos[i_l, i_b] = pos
                                 links_state_quat[i_l, i_b] = quat
-                    
+
                     # ti.loop_config(serialize=is_serial)
                     for i_l in range(links_state_root_COM.shape[0]):
                         links_state_root_COM[i_l, i_b] = ti.Vector.zero(gs.ti_float, 3)
@@ -2915,7 +2912,10 @@ class RigidSolver(Solver):
                             links_state_i_pos[i_l, i_b],
                             links_state_i_quat[i_l, i_b],
                         ) = gu.ti_transform_pos_quat_by_trans_quat(
-                            links_info_inertial_pos[I_l] + links_state_i_pos_shift[i_l, i_b], links_info_inertial_quat[I_l], links_state_pos[i_l, i_b], links_state_quat[i_l, i_b]
+                            links_info_inertial_pos[I_l] + links_state_i_pos_shift[i_l, i_b],
+                            links_info_inertial_quat[I_l],
+                            links_state_pos[i_l, i_b],
+                            links_state_quat[i_l, i_b],
                         )
 
                         i_r = links_info_root_idx[I_l]
@@ -2931,7 +2931,9 @@ class RigidSolver(Solver):
 
                         i_r = links_info_root_idx[I_l]
                         if i_l == i_r:
-                            links_state_root_COM[i_l, i_b] = links_state_root_COM[i_l, i_b] / links_state_mass_sum[i_l, i_b]
+                            links_state_root_COM[i_l, i_b] = (
+                                links_state_root_COM[i_l, i_b] / links_state_mass_sum[i_l, i_b]
+                            )
                             # self.links_state[i_l, i_b].root_COM = (
                             #     self.links_state[i_l, i_b].root_COM / self.links_state[i_l, i_b].mass_sum
                             # )
@@ -2962,7 +2964,6 @@ class RigidSolver(Solver):
                             i_inertial, i_mass, links_state_i_pos[i_l, i_b], links_state_i_quat[i_l, i_b]
                         )
 
-
                     # ti.loop_config(serialize=self._para_level < gs.PARA_LEVEL.ALL)
                     for i_l in range(links_state_root_COM.shape[0]):
                         I_l = [i_l, i_b] if ti.static(self._options.batch_links_info) else i_l
@@ -2987,7 +2988,9 @@ class RigidSolver(Solver):
                             (
                                 links_state_j_pos[i_l, i_b],
                                 links_state_j_quat[i_l, i_b],
-                            ) = gu.ti_transform_pos_quat_by_trans_quat(links_info_pos[I_l], links_info_quat[I_l], p_pos, p_quat)
+                            ) = gu.ti_transform_pos_quat_by_trans_quat(
+                                links_info_pos[I_l], links_info_quat[I_l], p_pos, p_quat
+                            )
 
                             for i_j in range(links_info_joint_start[I_l], links_info_joint_end[I_l]):
                                 I_j = [i_j, i_b] if ti.static(self._options.batch_joints_info) else i_j
@@ -3048,7 +3051,7 @@ class RigidSolver(Solver):
                     # forward velocity
                     for i_e in range(entities_info_link_start.shape[0]):
                         for i_l in range(entities_info_link_start[i_e], entities_info_link_end[i_e]):
-                            
+
                             I_l = [i_l, i_b] if ti.static(self._options.batch_links_info) else i_l
 
                             cvel_vel = ti.Vector.zero(gs.ti_float, 3)
@@ -3068,11 +3071,13 @@ class RigidSolver(Solver):
                                     for i_3 in range(3):
                                         cvel_vel = (
                                             cvel_vel
-                                            + dofs_state_cdof_vel[dof_start + i_3, i_b] * dofs_state_vel[dof_start + i_3, i_b]
+                                            + dofs_state_cdof_vel[dof_start + i_3, i_b]
+                                            * dofs_state_vel[dof_start + i_3, i_b]
                                         )
                                         cvel_ang = (
                                             cvel_ang
-                                            + dofs_state_cdof_ang[dof_start + i_3, i_b] * dofs_state_vel[dof_start + i_3, i_b]
+                                            + dofs_state_cdof_ang[dof_start + i_3, i_b]
+                                            * dofs_state_vel[dof_start + i_3, i_b]
                                         )
 
                                     for i_3 in range(3):
@@ -3122,55 +3127,53 @@ class RigidSolver(Solver):
                             links_state_cd_ang[i_l, i_b] = cvel_ang
                             links_state_vel[i_l, i_b] = cvel_vel
                             links_state_ang[i_l, i_b] = cvel_ang
-                                    
+
                     for i_g in range(geoms_info_link_idx.shape[0]):
                         link_idx = geoms_info_link_idx[i_g]
                         (
                             geoms_state_pos[i_g, i_b],
                             geoms_state_quat[i_g, i_b],
                         ) = gu.ti_transform_pos_quat_by_trans_quat(
-                            geoms_info_pos[i_g], 
-                            geoms_info_quat[i_g], 
-                            links_state_pos[link_idx, i_b], 
-                            links_state_quat[link_idx, i_b]
+                            geoms_info_pos[i_g],
+                            geoms_info_quat[i_g],
+                            links_state_pos[link_idx, i_b],
+                            links_state_quat[link_idx, i_b],
                         )
 
                         geoms_state_verts_updated[i_g, i_b] = 0
 
             return _kernel_forward_kinematics
-        
-            
+
         kernel_step_1 = make_kernel_step_1(is_ndarray=is_ndarray)
         kernel_step_1(
-            entities_info_link_start=self._entities_info.link_start, 
-            entities_info_link_end=self._entities_info.link_end, 
-            links_info_pos=self._links_info.pos, 
-            links_info_quat=self._links_info.quat, 
-            links_info_parent_idx=self._links_info.parent_idx, 
-            links_info_joint_start=self._links_info.joint_start, 
-            links_info_joint_end=self._links_info.joint_end, 
-            links_info_is_fixed=self._links_info.is_fixed, 
-            links_info_n_dofs=self._links_info.n_dofs, 
-            links_info_root_idx=self._links_info.root_idx, 
-            links_info_inertial_pos=self._links_info.inertial_pos, 
-            links_info_inertial_quat=self._links_info.inertial_quat, 
-            links_info_inertial_mass=self._links_info.inertial_mass, 
-            links_info_inertial_i=self._links_info.inertial_i, 
-            joints_info_type=self._joints_info.type, 
-            joints_info_q_start=self._joints_info.q_start, 
-            joints_info_dof_start=self._joints_info.dof_start, 
-            joints_info_dof_end=self._joints_info.dof_end, 
-            joints_info_pos=self._joints_info.pos, 
-            dofs_info_motion_ang=self._dofs_info.motion_ang, 
-            dofs_info_motion_vel=self._dofs_info.motion_vel, 
-            links_state_pos=self._links_state.pos, 
-            links_state_quat=self._links_state.quat, 
-            joints_state_xanchor=self._joints_state.xanchor, 
-            joints_state_xaxis=self._joints_state.xaxis, 
-            dofs_state_pos=self._dofs_state.pos, 
-            rigid_qpos=self._qpos, 
+            entities_info_link_start=self._entities_info.link_start,
+            entities_info_link_end=self._entities_info.link_end,
+            links_info_pos=self._links_info.pos,
+            links_info_quat=self._links_info.quat,
+            links_info_parent_idx=self._links_info.parent_idx,
+            links_info_joint_start=self._links_info.joint_start,
+            links_info_joint_end=self._links_info.joint_end,
+            links_info_is_fixed=self._links_info.is_fixed,
+            links_info_n_dofs=self._links_info.n_dofs,
+            links_info_root_idx=self._links_info.root_idx,
+            links_info_inertial_pos=self._links_info.inertial_pos,
+            links_info_inertial_quat=self._links_info.inertial_quat,
+            links_info_inertial_mass=self._links_info.inertial_mass,
+            links_info_inertial_i=self._links_info.inertial_i,
+            joints_info_type=self._joints_info.type,
+            joints_info_q_start=self._joints_info.q_start,
+            joints_info_dof_start=self._joints_info.dof_start,
+            joints_info_dof_end=self._joints_info.dof_end,
+            joints_info_pos=self._joints_info.pos,
+            dofs_info_motion_ang=self._dofs_info.motion_ang,
+            dofs_info_motion_vel=self._dofs_info.motion_vel,
+            links_state_pos=self._links_state.pos,
+            links_state_quat=self._links_state.quat,
+            joints_state_xanchor=self._joints_state.xanchor,
+            joints_state_xaxis=self._joints_state.xaxis,
+            dofs_state_pos=self._dofs_state.pos,
+            rigid_qpos=self._qpos,
             rigid_qpos0=self._qpos0,
-
             links_state_root_COM=self._links_state.root_COM,
             links_state_mass_sum=self._links_state.mass_sum,
             links_state_i_pos=self._links_state.i_pos,
@@ -3188,7 +3191,6 @@ class RigidSolver(Solver):
             links_state_cd_ang=self._links_state.cd_ang,
             links_state_vel=self._links_state.vel,
             links_state_ang=self._links_state.ang,
-
             dofs_state_vel=self._dofs_state.vel,
             dofs_state_cdof_ang=self._dofs_state.cdof_ang,
             dofs_state_cdof_vel=self._dofs_state.cdof_vel,
@@ -3196,15 +3198,12 @@ class RigidSolver(Solver):
             dofs_state_cdofvel_vel=self._dofs_state.cdofvel_vel,
             dofs_state_cdofd_ang=self._dofs_state.cdofd_ang,
             dofs_state_cdofd_vel=self._dofs_state.cdofd_vel,
-
             geoms_info_link_idx=self._geoms_info.link_idx,
             geoms_info_pos=self._geoms_info.pos,
             geoms_info_quat=self._geoms_info.quat,
-
             geoms_state_pos=self._geoms_state.pos,
             geoms_state_quat=self._geoms_state.quat,
             geoms_state_verts_updated=self._geoms_state.verts_updated,
-
         )
 
         print("make_kernel_step_1")
@@ -3214,7 +3213,7 @@ class RigidSolver(Solver):
         np.testing.assert_allclose(self._joints_state.xaxis.to_numpy(), self.joints_state.xaxis.to_numpy())
         np.testing.assert_allclose(self._dofs_state.pos.to_numpy(), self.dofs_state.pos.to_numpy())
         np.testing.assert_allclose(self._links_state.pos.to_numpy(), self.links_state.pos.to_numpy())
-        np.testing.assert_allclose(self._links_state.quat.to_numpy(), self.links_state.quat.to_numpy()) 
+        np.testing.assert_allclose(self._links_state.quat.to_numpy(), self.links_state.quat.to_numpy())
 
         np.testing.assert_allclose(self._links_state.mass_sum.to_numpy(), self.links_state.mass_sum.to_numpy())
 
@@ -3223,24 +3222,36 @@ class RigidSolver(Solver):
         # links_info_inertial_pos[I_l] + links_state_i_pos_shift[i_l, i_b], links_info_inertial_quat[I_l], links_state_pos[i_l, i_b], links_state_quat[i_l, i_b]
         np.testing.assert_allclose(self._links_state.i_pos_shift.to_numpy(), self.links_state.i_pos_shift.to_numpy())
         np.testing.assert_allclose(self._links_info.inertial_quat.to_numpy(), self.links_info.inertial_quat.to_numpy())
-        
-
 
         atol = 1e-6
-        np.testing.assert_allclose(self._links_state.root_COM.to_numpy(), self.links_state.root_COM.to_numpy(), atol=atol)
+        np.testing.assert_allclose(
+            self._links_state.root_COM.to_numpy(), self.links_state.root_COM.to_numpy(), atol=atol
+        )
         np.testing.assert_allclose(self._links_state.i_quat.to_numpy(), self.links_state.i_quat.to_numpy(), atol=atol)
         np.testing.assert_allclose(self._links_state.COM.to_numpy(), self.links_state.COM.to_numpy(), atol=atol)
-        np.testing.assert_allclose(self._links_state.cinr_inertial.to_numpy(), self.links_state.cinr_inertial.to_numpy(), atol=atol)
-        np.testing.assert_allclose(self._links_state.cinr_pos.to_numpy(), self.links_state.cinr_pos.to_numpy(), atol=atol)
-        np.testing.assert_allclose(self._links_state.cinr_quat.to_numpy(), self.links_state.cinr_quat.to_numpy(), atol=atol)
-        np.testing.assert_allclose(self._links_state.cinr_mass.to_numpy(), self.links_state.cinr_mass.to_numpy(), atol=atol)
+        np.testing.assert_allclose(
+            self._links_state.cinr_inertial.to_numpy(), self.links_state.cinr_inertial.to_numpy(), atol=atol
+        )
+        np.testing.assert_allclose(
+            self._links_state.cinr_pos.to_numpy(), self.links_state.cinr_pos.to_numpy(), atol=atol
+        )
+        np.testing.assert_allclose(
+            self._links_state.cinr_quat.to_numpy(), self.links_state.cinr_quat.to_numpy(), atol=atol
+        )
+        np.testing.assert_allclose(
+            self._links_state.cinr_mass.to_numpy(), self.links_state.cinr_mass.to_numpy(), atol=atol
+        )
         np.testing.assert_allclose(self._links_state.j_pos.to_numpy(), self.links_state.j_pos.to_numpy(), atol=atol)
         np.testing.assert_allclose(self._links_state.j_quat.to_numpy(), self.links_state.j_quat.to_numpy(), atol=atol)
         np.testing.assert_allclose(self._dofs_state.cdof_ang.to_numpy(), self.dofs_state.cdof_ang.to_numpy(), atol=atol)
         np.testing.assert_allclose(self._dofs_state.cdof_vel.to_numpy(), self.dofs_state.cdof_vel.to_numpy(), atol=atol)
-        np.testing.assert_allclose(self._dofs_state.cdofvel_ang.to_numpy(), self.dofs_state.cdofvel_ang.to_numpy(), atol=atol)
-        np.testing.assert_allclose(self._dofs_state.cdofvel_vel.to_numpy(), self.dofs_state.cdofvel_vel.to_numpy(), atol=atol)
-        
+        np.testing.assert_allclose(
+            self._dofs_state.cdofvel_ang.to_numpy(), self.dofs_state.cdofvel_ang.to_numpy(), atol=atol
+        )
+        np.testing.assert_allclose(
+            self._dofs_state.cdofvel_vel.to_numpy(), self.dofs_state.cdofvel_vel.to_numpy(), atol=atol
+        )
+
         np.testing.assert_allclose(self._links_state.i_pos.to_numpy(), self.links_state.i_pos.to_numpy(), atol=atol)
         np.testing.assert_allclose(self._links_state.cd_vel.to_numpy(), self.links_state.cd_vel.to_numpy(), atol=atol)
         np.testing.assert_allclose(self._links_state.cd_ang.to_numpy(), self.links_state.cd_ang.to_numpy(), atol=atol)
@@ -3250,14 +3261,13 @@ class RigidSolver(Solver):
 
         np.testing.assert_allclose(self._geoms_state.pos.to_numpy(), self.geoms_state.pos.to_numpy(), atol=atol)
         np.testing.assert_allclose(self._geoms_state.quat.to_numpy(), self.geoms_state.quat.to_numpy(), atol=atol)
-        np.testing.assert_allclose(self._geoms_state.verts_updated.to_numpy(), self.geoms_state.verts_updated.to_numpy(), atol=atol)
+        np.testing.assert_allclose(
+            self._geoms_state.verts_updated.to_numpy(), self.geoms_state.verts_updated.to_numpy(), atol=atol
+        )
 
         np.testing.assert_allclose(self._geoms_info.link_idx.to_numpy(), self.geoms_info.link_idx.to_numpy(), atol=atol)
         np.testing.assert_allclose(self._geoms_info.pos.to_numpy(), self.geoms_info.pos.to_numpy(), atol=atol)
         np.testing.assert_allclose(self._geoms_info.quat.to_numpy(), self.geoms_info.quat.to_numpy(), atol=atol)
-
-
-
 
         ## timing
 
@@ -3265,39 +3275,38 @@ class RigidSolver(Solver):
         # n_iter = 10000
         # # field
 
-
         # # ndarray
         # ti.sync()
         # s_time = time.time()
         # for i in range(n_iter):
         #     kernel_step_1(
-        #         entities_info_link_start=self._entities_info.link_start, 
-        #         entities_info_link_end=self._entities_info.link_end, 
-        #         links_info_pos=self._links_info.pos, 
-        #         links_info_quat=self._links_info.quat, 
-        #         links_info_parent_idx=self._links_info.parent_idx, 
-        #         links_info_joint_start=self._links_info.joint_start, 
-        #         links_info_joint_end=self._links_info.joint_end, 
-        #         links_info_is_fixed=self._links_info.is_fixed, 
-        #         links_info_n_dofs=self._links_info.n_dofs, 
-        #         links_info_root_idx=self._links_info.root_idx, 
-        #         links_info_inertial_pos=self._links_info.inertial_pos, 
-        #         links_info_inertial_quat=self._links_info.inertial_quat, 
-        #         links_info_inertial_mass=self._links_info.inertial_mass, 
-        #         links_info_inertial_i=self._links_info.inertial_i, 
-        #         joints_info_type=self._joints_info.type, 
-        #         joints_info_q_start=self._joints_info.q_start, 
-        #         joints_info_dof_start=self._joints_info.dof_start, 
-        #         joints_info_dof_end=self._joints_info.dof_end, 
-        #         joints_info_pos=self._joints_info.pos, 
-        #         dofs_info_motion_ang=self._dofs_info.motion_ang, 
-        #         dofs_info_motion_vel=self._dofs_info.motion_vel, 
-        #         links_state_pos=self._links_state.pos, 
-        #         links_state_quat=self._links_state.quat, 
-        #         joints_state_xanchor=self._joints_state.xanchor, 
-        #         joints_state_xaxis=self._joints_state.xaxis, 
-        #         dofs_state_pos=self._dofs_state.pos, 
-        #         rigid_qpos=self._qpos, 
+        #         entities_info_link_start=self._entities_info.link_start,
+        #         entities_info_link_end=self._entities_info.link_end,
+        #         links_info_pos=self._links_info.pos,
+        #         links_info_quat=self._links_info.quat,
+        #         links_info_parent_idx=self._links_info.parent_idx,
+        #         links_info_joint_start=self._links_info.joint_start,
+        #         links_info_joint_end=self._links_info.joint_end,
+        #         links_info_is_fixed=self._links_info.is_fixed,
+        #         links_info_n_dofs=self._links_info.n_dofs,
+        #         links_info_root_idx=self._links_info.root_idx,
+        #         links_info_inertial_pos=self._links_info.inertial_pos,
+        #         links_info_inertial_quat=self._links_info.inertial_quat,
+        #         links_info_inertial_mass=self._links_info.inertial_mass,
+        #         links_info_inertial_i=self._links_info.inertial_i,
+        #         joints_info_type=self._joints_info.type,
+        #         joints_info_q_start=self._joints_info.q_start,
+        #         joints_info_dof_start=self._joints_info.dof_start,
+        #         joints_info_dof_end=self._joints_info.dof_end,
+        #         joints_info_pos=self._joints_info.pos,
+        #         dofs_info_motion_ang=self._dofs_info.motion_ang,
+        #         dofs_info_motion_vel=self._dofs_info.motion_vel,
+        #         links_state_pos=self._links_state.pos,
+        #         links_state_quat=self._links_state.quat,
+        #         joints_state_xanchor=self._joints_state.xanchor,
+        #         joints_state_xaxis=self._joints_state.xaxis,
+        #         dofs_state_pos=self._dofs_state.pos,
+        #         rigid_qpos=self._qpos,
         #         rigid_qpos0=self._qpos0,
 
         #         links_state_root_COM=self._links_state.root_COM,
@@ -3335,12 +3344,11 @@ class RigidSolver(Solver):
         #         geoms_state_verts_updated=self._geoms_state.verts_updated,
 
         #     )
-        # ti.sync()   
+        # ti.sync()
         # e_time = time.time()
 
         # print("batch size", self._B, "is_ndarray", is_ndarray)
         # print(f"new type time: {(e_time - s_time)*1000/n_iter : .4f} ms")
-
 
         # ti.sync()
         # s_time = time.time()
@@ -3351,7 +3359,6 @@ class RigidSolver(Solver):
         # print(f"field time: {(e_time - s_time)*1000/n_iter : .4f} ms")
         # exit()
         ############################################################ ndarray version
-
 
         # constraint force
         self._func_constraint_force()

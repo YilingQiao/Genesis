@@ -30,8 +30,10 @@ def vec_types(is_ndarray: bool):
 
     return ns
 
+
 def get_array_type(is_ndarray: bool):
     return ti.ndarray if is_ndarray else ti.field
+
 
 @ti.data_oriented
 class DataClass:
@@ -53,14 +55,9 @@ class GlobalData(DataClass):
         self.meaninertia = self.VT(dtype=gs.ti_float, shape=f_batch())
         self.geoms_init_AABB = self.VT(dtype=gs.ti_vec3, shape=(n_geoms, 8))
 
-
-
-
         ############## broad phase SAP ##############
         # This buffer stores the AABBs along the search axis of all geoms
         # This buffer stores indexes of active geoms during SAP search
-
-
 
         self.sort_buffer_value = self.VT(dtype=gs.ti_float, shape=f_batch(2 * n_geoms))
         self.sort_buffer_i_g = self.VT(dtype=gs.ti_int, shape=f_batch(2 * n_geoms))
@@ -71,14 +68,12 @@ class GlobalData(DataClass):
         self.broad_collision_pairs = self.VT(dtype=gs.ti_int, shape=f_batch((max_collision_pairs, 2)))
 
         self.first_time = self.VT(dtype=gs.ti_int, shape=f_batch())
-    
+
         self.contact_cache_normal = self.VT(dtype=gs.ti_vec3, shape=f_batch((n_geoms, n_geoms)))
         self.contact_cache_penetration = self.VT(dtype=gs.ti_float, shape=f_batch((n_geoms, n_geoms)))
         self.contact_cache_i_va_ws = self.VT(dtype=gs.ti_int, shape=f_batch((n_geoms, n_geoms)))
-        
 
         ############## broad phase SAP ##############
-
 
 
 @ti.data_oriented
@@ -376,6 +371,7 @@ class LinksState(DataClass):
         self.contact_force = self.VT(dtype=gs.ti_vec3, shape=shape)
         self.hibernated = self.VT(dtype=gs.ti_int, shape=shape)
 
+
 @ti.data_oriented
 class JointsState(DataClass):
     def __init__(self, is_ndarray: bool, shape: tuple):
@@ -383,6 +379,7 @@ class JointsState(DataClass):
 
         self.xanchor = self.VT(dtype=gs.ti_vec3, shape=shape)
         self.xaxis = self.VT(dtype=gs.ti_vec3, shape=shape)
+
 
 @ti.data_oriented
 class EntityInfo(DataClass):
@@ -399,6 +396,7 @@ class EntityInfo(DataClass):
         self.geom_end = self.VT(dtype=gs.ti_int, shape=shape)
         self.n_geoms = self.VT(dtype=gs.ti_int, shape=shape)
         self.gravity_compensation = self.VT(dtype=gs.ti_float, shape=shape)
+
 
 @ti.data_oriented
 class EntityState(DataClass):
