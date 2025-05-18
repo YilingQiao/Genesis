@@ -9,7 +9,7 @@ import genesis as gs
 _enable_self_collision = True
 _enable_adjacent_collision = False
 batch_links_info = False
-max_collision_pairs = 8192
+max_collision_pairs = 218
 
 
 def vec_types(is_ndarray: bool):
@@ -68,14 +68,15 @@ class GlobalData(DataClass):
 
         self.active_buffer = self.VT(dtype=gs.ti_int, shape=f_batch(n_geoms))
         self.n_broad_pairs = self.VT(dtype=gs.ti_int, shape=f_batch())
-        self.broad_collision_pairs = self.VT(dtype=gs.ti_int, shape=f_batch(max_collision_pairs, 2))
+        self.broad_collision_pairs = self.VT(dtype=gs.ti_int, shape=f_batch((max_collision_pairs, 2)))
 
         self.first_time = self.VT(dtype=gs.ti_int, shape=f_batch())
     
         self.contact_cache_normal = self.VT(dtype=gs.ti_vec3, shape=f_batch((n_geoms, n_geoms)))
         self.contact_cache_penetration = self.VT(dtype=gs.ti_float, shape=f_batch((n_geoms, n_geoms)))
-        self.contact_cache_i_va_ws = self.VT(dtype=gs.ti_float, shape=f_batch((n_geoms, n_geoms)))
+        self.contact_cache_i_va_ws = self.VT(dtype=gs.ti_int, shape=f_batch((n_geoms, n_geoms)))
         
+
         ############## broad phase SAP ##############
 
 

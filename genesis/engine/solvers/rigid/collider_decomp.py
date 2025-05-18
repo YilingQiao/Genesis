@@ -268,65 +268,30 @@ class Collider:
         self._func_broad_phase()
         timer.stamp("func_broad_phase")
 
-        from genesis.engine.solvers.rigid.make_kernels import make_kernel_update_aabbs
+
+        ############## NDARRAY ##############
+        from genesis.engine.solvers.rigid.make_kernels import make_kernel_update_aabbs, make_kernel_reset_collider
+
+        ## reset collider
+        envs_idx = None
+        if envs_idx is None:
+            envs_idx = self._solver._scene._envs_idx
+        kernel_reset_collider = make_kernel_reset_collider(is_ndarray=self._solver.is_ndarray)
+        kernel_reset_collider(
+            envs_idx=envs_idx,
+            contact_cache_i_va_ws=self._solver._d.contact_cache_i_va_ws,
+            contact_cache_penetration=self._solver._d.contact_cache_penetration,
+            contact_cache_normal=self._solver._d.contact_cache_normal,
+            geoms_info_link_idx=self._solver._geoms_info.link_idx,
+            first_time=self._solver._d.first_time,
+        )
         
         kernel_update_aabbs = make_kernel_update_aabbs(is_ndarray=self._solver.is_ndarray)
 
         kernel_update_aabbs(
-            entities_info_link_start=self._solver._entities_info.link_start, 
-            entities_info_link_end=self._solver._entities_info.link_end, 
-            links_info_pos=self._solver._links_info.pos, 
-            links_info_quat=self._solver._links_info.quat, 
-            links_info_parent_idx=self._solver._links_info.parent_idx, 
-            links_info_joint_start=self._solver._links_info.joint_start, 
-            links_info_joint_end=self._solver._links_info.joint_end, 
-            links_info_is_fixed=self._solver._links_info.is_fixed, 
-            links_info_n_dofs=self._solver._links_info.n_dofs, 
-            links_info_root_idx=self._solver._links_info.root_idx, 
-            links_info_inertial_pos=self._solver._links_info.inertial_pos, 
-            links_info_inertial_quat=self._solver._links_info.inertial_quat, 
-            links_info_inertial_mass=self._solver._links_info.inertial_mass, 
-            links_info_inertial_i=self._solver._links_info.inertial_i, 
-            joints_info_type=self._solver._joints_info.type, 
-            joints_info_q_start=self._solver._joints_info.q_start, 
-            joints_info_dof_start=self._solver._joints_info.dof_start, 
-            joints_info_dof_end=self._solver._joints_info.dof_end, 
-            joints_info_pos=self._solver._joints_info.pos, 
-            dofs_info_motion_ang=self._solver._dofs_info.motion_ang, 
-            dofs_info_motion_vel=self._solver._dofs_info.motion_vel, 
-            links_state_pos=self._solver._links_state.pos, 
-            links_state_quat=self._solver._links_state.quat, 
-            joints_state_xanchor=self._solver._joints_state.xanchor, 
-            joints_state_xaxis=self._solver._joints_state.xaxis, 
-            dofs_state_pos=self._solver._dofs_state.pos, 
-            rigid_qpos=self._solver._qpos, 
-            rigid_qpos0=self._solver._qpos0,
-
-            links_state_root_COM=self._solver._links_state.root_COM,
-            links_state_mass_sum=self._solver._links_state.mass_sum,
-            links_state_i_pos=self._solver._links_state.i_pos,
-            links_state_i_quat=self._solver._links_state.i_quat,
-            links_state_COM=self._solver._links_state.COM,
-            links_state_cinr_inertial=self._solver._links_state.cinr_inertial,
-            links_state_cinr_pos=self._solver._links_state.cinr_pos,
-            links_state_cinr_quat=self._solver._links_state.cinr_quat,
-            links_state_cinr_mass=self._solver._links_state.cinr_mass,
-            links_state_j_pos=self._solver._links_state.j_pos,
-            links_state_j_quat=self._solver._links_state.j_quat,
-            links_state_i_pos_shift=self._solver._links_state.i_pos_shift,
-            links_state_mass_shift=self._solver._links_state.mass_shift,
-            links_state_cd_vel=self._solver._links_state.cd_vel,
-            links_state_cd_ang=self._solver._links_state.cd_ang,
-            links_state_vel=self._solver._links_state.vel,
-            links_state_ang=self._solver._links_state.ang,
-
-            dofs_state_vel=self._solver._dofs_state.vel,
-            dofs_state_cdof_ang=self._solver._dofs_state.cdof_ang,
-            dofs_state_cdof_vel=self._solver._dofs_state.cdof_vel,
-            dofs_state_cdofvel_ang=self._solver._dofs_state.cdofvel_ang,
-            dofs_state_cdofvel_vel=self._solver._dofs_state.cdofvel_vel,
-            dofs_state_cdofd_ang=self._solver._dofs_state.cdofd_ang,
-            dofs_state_cdofd_vel=self._solver._dofs_state.cdofd_vel,
+            links_info_root_idx=self._solver._links_info.root_idx,
+            links_info_parent_idx=self._solver._links_info.parent_idx,
+            links_info_is_fixed=self._solver._links_info.is_fixed,
 
             geoms_info_link_idx=self._solver._geoms_info.link_idx,
             geoms_info_pos=self._solver._geoms_info.pos,
@@ -344,38 +309,38 @@ class Collider:
             sort_buffer_value=self._solver._d.sort_buffer_value,
             sort_buffer_i_g=self._solver._d.sort_buffer_i_g,
             sort_buffer_is_max=self._solver._d.sort_buffer_is_max,
-            geoms_state_min_buffer_idx=self._solver._d.geoms_state_min_buffer_idx,
-            geoms_state_max_buffer_idx=self._solver._d.geoms_state_max_buffer_idx,
+            geoms_state_min_buffer_idx=self._solver._geoms_state.min_buffer_idx,
+            geoms_state_max_buffer_idx=self._solver._geoms_state.max_buffer_idx,
             n_broad_pairs=self._solver._d.n_broad_pairs,
             active_buffer=self._solver._d.active_buffer,
             contact_cache_normal=self._solver._d.contact_cache_normal,
             contact_cache_penetration=self._solver._d.contact_cache_penetration,
             contact_cache_i_va_ws=self._solver._d.contact_cache_i_va_ws,
             broad_collision_pairs=self._solver._d.broad_collision_pairs,
-            
+            geoms_info_contype=self._solver._geoms_info.contype,
+            geoms_info_conaffinity=self._solver._geoms_info.conaffinity,
 
-
-
-            # first_time: VT.I,
-            # sort_buffer_value: VT.F,
-            # sort_buffer_i_g: VT.I,
-            # sort_buffer_is_max: VT.I,
-            # geoms_state_min_buffer_idx: VT.I,
-            # geoms_state_max_buffer_idx: VT.I,
-            # n_broad_pairs: VT.I,
-            # active_buffer: VT.I,
-            # contact_cache_normal: VT.V3,
-            # contact_cache_penetration: VT.F,
-            # contact_cache_i_va_ws: VT.I,
-            # broad_collision_pairs: VT.I,
         )
 
         np.testing.assert_allclose(self._solver._d.geoms_init_AABB.to_numpy(), self._solver.geoms_init_AABB.to_numpy())
         np.testing.assert_allclose(self._solver._geoms_state.aabb_max.to_numpy(), self._solver._geoms_state.aabb_max.to_numpy())
         np.testing.assert_allclose(self._solver._geoms_state.aabb_min.to_numpy(), self._solver._geoms_state.aabb_min.to_numpy())
 
+        np.testing.assert_allclose(self._solver._d.contact_cache_normal.to_numpy(), self.contact_cache.normal.to_numpy())
+        np.testing.assert_allclose(self._solver._d.contact_cache_penetration.to_numpy(), self.contact_cache.penetration.to_numpy())
+
+
+        np.testing.assert_allclose(self._solver._d.sort_buffer_i_g.to_numpy(), self._solver._d.sort_buffer_i_g.to_numpy())
+        np.testing.assert_allclose(self._solver._d.sort_buffer_is_max.to_numpy(), self._solver._d.sort_buffer_is_max.to_numpy())
+        np.testing.assert_allclose(self._solver._d.sort_buffer_value.to_numpy(), self._solver._d.sort_buffer_value.to_numpy())
+
+
         from IPython import embed
         embed()
+        np.testing.assert_allclose(self._solver._d.broad_collision_pairs.to_numpy(), self.broad_collision_pairs.to_numpy())
+        np.testing.assert_allclose(self._solver._d.contact_cache_i_va_ws.to_numpy(), self.contact_cache.i_va_ws.to_numpy())
+        np.testing.assert_allclose(self._solver._d.active_buffer.to_numpy(), self.active_buffer.to_numpy())
+
 
 
         self._func_narrow_phase()
