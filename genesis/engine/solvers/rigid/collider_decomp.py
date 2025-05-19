@@ -1370,48 +1370,52 @@ class Collider:
                     # MPR cannot handle collision detection for fully enclosed geometries. Falling back to SDF.
                     # Note that SDF does not take into account to direction of interest. As such, it cannot be used
                     # reliably for anything else than the point of deepest penetration.
-                    if (i_detection == 0) and overlap_ratio_a > self._mpr_to_sdf_overlap_ratio:
-                        # FIXME: It is impossible to rely on `_func_contact_convex_convex_sdf` to get the contact
-                        # information because the compilation times skyrockets from 42s for `_func_contact_vertex_sdf`
-                        # to 2min51s on Apple Silicon M4 Max, which is not acceptable.
-                        # is_col, normal, penetration, contact_pos, i_va = self._func_contact_convex_convex_sdf(
-                        #     i_ga, i_gb, i_b, self.contact_cache[i_ga, i_gb, i_b].i_va_ws
-                        # )
-                        # self.contact_cache[i_ga, i_gb, i_b].i_va_ws = i_va
-                        is_col, normal, penetration, contact_pos = self._func_contact_vertex_sdf(i_ga, i_gb, i_b)
-                    elif (i_detection == 0) and overlap_ratio_b > self._mpr_to_sdf_overlap_ratio:
-                        is_col, normal, penetration, contact_pos = self._func_contact_vertex_sdf(i_gb, i_ga, i_b)
-                        normal = -normal
-                    else:
-                        is_col, normal, penetration, contact_pos = self._mpr.func_mpr_contact(
-                            i_ga, i_gb, i_b, self.contact_cache[i_ga, i_gb, i_b].normal
-                        )
+                    is_col, normal, penetration, contact_pos = self._mpr.func_mpr_contact(
+                        i_ga, i_gb, i_b, self.contact_cache[i_ga, i_gb, i_b].normal
+                    )
 
-                        # Fallback on SDF if collision is detected by MPR but no collision direction was cached but the
-                        # initial penetration is already quite large, because the contact information provided by MPR
-                        # may be unreliable in such a case.
-                        # Here it is assumed that generic SDF is much slower than MPR, so it is faster in average
-                        # to first make sure that the geometries are truly colliding and only after to run SDF if
-                        # necessary. This would probably not be the case anymore if it was possible to rely on
-                        # specialized SDF implementation for convex-convex collision detection in the first place.
-                        if ti.static(not self._solver._enable_mujoco_compatibility):
-                            is_mpr_guess_direction_available = (
-                                ti.abs(self.contact_cache[i_ga, i_gb, i_b].normal) > gs.EPS
-                            ).any()
-                            if is_col and penetration > tolerance and not is_mpr_guess_direction_available:
-                                # Note that SDF may detect different collision points depending on geometry ordering.
-                                # Because of this, it is necessary to run it twice and take the contact information
-                                # associated with the point of deepest penetration.
-                                is_col_a, normal_a, penetration_a, contact_pos_a = self._func_contact_vertex_sdf(
-                                    i_ga, i_gb, i_b
-                                )
-                                is_col_b, normal_b, penetration_b, contact_pos_b = self._func_contact_vertex_sdf(
-                                    i_gb, i_ga, i_b
-                                )
-                                if is_col_a and (not is_col_b or penetration_a >= penetration_b):
-                                    normal, penetration, contact_pos = normal_a, penetration_a, contact_pos_a
-                                elif is_col_b and (not is_col_a or penetration_b > penetration_a):
-                                    normal, penetration, contact_pos = -normal_b, penetration_b, contact_pos_b
+                    # if (i_detection == 0) and overlap_ratio_a > self._mpr_to_sdf_overlap_ratio:
+                    #     # FIXME: It is impossible to rely on `_func_contact_convex_convex_sdf` to get the contact
+                    #     # information because the compilation times skyrockets from 42s for `_func_contact_vertex_sdf`
+                    #     # to 2min51s on Apple Silicon M4 Max, which is not acceptable.
+                    #     # is_col, normal, penetration, contact_pos, i_va = self._func_contact_convex_convex_sdf(
+                    #     #     i_ga, i_gb, i_b, self.contact_cache[i_ga, i_gb, i_b].i_va_ws
+                    #     # )
+                    #     # self.contact_cache[i_ga, i_gb, i_b].i_va_ws = i_va
+                    #     is_col, normal, penetration, contact_pos = self._func_contact_vertex_sdf(i_ga, i_gb, i_b)
+                    # elif (i_detection == 0) and overlap_ratio_b > self._mpr_to_sdf_overlap_ratio:
+                    #     is_col, normal, penetration, contact_pos = self._func_contact_vertex_sdf(i_gb, i_ga, i_b)
+                    #     normal = -normal
+                    # else:
+                    #     is_col, normal, penetration, contact_pos = self._mpr.func_mpr_contact(
+                    #         i_ga, i_gb, i_b, self.contact_cache[i_ga, i_gb, i_b].normal
+                    #     )
+
+                    #     # Fallback on SDF if collision is detected by MPR but no collision direction was cached but the
+                    #     # initial penetration is already quite large, because the contact information provided by MPR
+                    #     # may be unreliable in such a case.
+                    #     # Here it is assumed that generic SDF is much slower than MPR, so it is faster in average
+                    #     # to first make sure that the geometries are truly colliding and only after to run SDF if
+                    #     # necessary. This would probably not be the case anymore if it was possible to rely on
+                    #     # specialized SDF implementation for convex-convex collision detection in the first place.
+                    #     if ti.static(not self._solver._enable_mujoco_compatibility):
+                    #         is_mpr_guess_direction_available = (
+                    #             ti.abs(self.contact_cache[i_ga, i_gb, i_b].normal) > gs.EPS
+                    #         ).any()
+                    #         if is_col and penetration > tolerance and not is_mpr_guess_direction_available:
+                    #             # Note that SDF may detect different collision points depending on geometry ordering.
+                    #             # Because of this, it is necessary to run it twice and take the contact information
+                    #             # associated with the point of deepest penetration.
+                    #             is_col_a, normal_a, penetration_a, contact_pos_a = self._func_contact_vertex_sdf(
+                    #                 i_ga, i_gb, i_b
+                    #             )
+                    #             is_col_b, normal_b, penetration_b, contact_pos_b = self._func_contact_vertex_sdf(
+                    #                 i_gb, i_ga, i_b
+                    #             )
+                    #             if is_col_a and (not is_col_b or penetration_a >= penetration_b):
+                    #                 normal, penetration, contact_pos = normal_a, penetration_a, contact_pos_a
+                    #             elif is_col_b and (not is_col_a or penetration_b > penetration_a):
+                    #                 normal, penetration, contact_pos = -normal_b, penetration_b, contact_pos_b
 
                 if i_detection == 0:
                     is_col_0, normal_0, penetration_0, contact_pos_0 = is_col, normal, penetration, contact_pos
