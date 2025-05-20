@@ -299,10 +299,6 @@ def _func_rotate_frame(i_ga, contact_pos_0, qrot, i_b):
     pass
 
 
-@ti.func
-def _func_mpr_contact(i_ga, i_gb, i_b, contact_cache_normal):
-    # TODO
-    pass
 
 
 @ti.func
@@ -416,6 +412,8 @@ def _func_mpr(
     geoms_info_friction: ti.types.ndarray(),
     geoms_state_friction_ratio: ti.types.ndarray(),
     geoms_info_sol_params: ti.types.ndarray(),
+    geoms_init_AABB: ti.types.ndarray(),
+    links_state_i_quat: ti.types.ndarray(),
 ):
     if geoms_info_type[i_ga] > geoms_info_type[i_gb]:
         i_gb, i_ga = i_ga, i_gb
@@ -477,7 +475,7 @@ def _func_mpr(
                 # MPR cannot handle collision detection for fully enclosed geometries. Falling back to SDF.
                 # Note that SDF does not take into account to direction of interest. As such, it cannot be used
                 # reliably for anything else than the point of deepest penetration.
-                is_col, normal, penetration, contact_pos = _func_mpr_contact(
+                is_col, normal, penetration, contact_pos = func_mpr_contact(
                     i_ga, i_gb, i_b, contact_cache_normal[i_ga, i_gb, i_b]
                 )
 
