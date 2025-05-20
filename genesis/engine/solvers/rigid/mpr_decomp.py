@@ -202,18 +202,6 @@ class MPR:
         capule_endpoint = capule_center + capule_halflength * capule_endpoint_side * capsule_axis
         return capule_endpoint + direction * capule_radius
 
-    # @ti.func
-    # def support_prism(self, direction, i_g, i_b):
-    #     ibest = 0
-    #     best = self._solver.collider.prism[ibest, i_b].dot(direction)
-    #     for i in range(1, 6):
-    #         dot = self._solver.collider.prism[i, i_b].dot(direction)
-    #         if dot > best:
-    #             ibest = i
-    #             best = dot
-
-    #     return self._solver.collider.prism[ibest, i_b], ibest
-
     @ti.func
     def support_prism(self, direction, i_g, i_b):
         istart = 3
@@ -909,6 +897,128 @@ def mpr_discover_portal(
                         simplex_size[i_ga, i_gb, i_b] = 4
 
     return ret
+
+@ti.func
+def support_sphere(
+    direction: gs.ti_vec3, 
+    i_g: ti.i32, 
+    i_b: ti.i32,
+    geoms_state_pos: ti.types.ndarray(dtype=gs.ti_vec3),
+    geoms_info_data: ti.types.ndarray(dtype=gs.ti_float),
+):
+    sphere_center = geoms_state_pos[i_g, i_b]
+    sphere_radius = geoms_info_data[i_g, 0]
+    return sphere_center + direction * sphere_radius
+
+@ti.func
+def support_ellipsoid(
+    direction: gs.ti_vec3, 
+    i_g: ti.i32, 
+    i_b: ti.i32,
+    geoms_state_pos: ti.types.ndarray(dtype=gs.ti_vec3),
+    geoms_state_quat: ti.types.ndarray(dtype=gs.ti_quat),
+    geoms_info_data: ti.types.ndarray(dtype=gs.ti_float),
+):
+    ellipsoid_center = geoms_state_pos[i_g, i_b]
+    ellipsoid_scaled_axis = ti.Vector(
+        [
+            geoms_info_data[i_g, 0] ** 2,
+            geoms_info_data[i_g, 1] ** 2,
+            geoms_info_data[i_g, 2] ** 2,
+        ],
+        dt=gs.ti_float,
+    )
+    ellipsoid_scaled_axis = gu.ti_transform_by_quat(ellipsoid_scaled_axis, geoms_state_quat[i_g, i_b])
+    dist = ellipsoid_scaled_axis / ti.sqrt(direction.dot(1.0 / ellipsoid_scaled_axis))
+    return ellipsoid_center + direction * dist
+
+@ti.func
+def support_capsule(
+    direction: gs.ti_vec3, 
+    i_g: ti.i32, 
+    i_b: ti.i32,
+    geoms_state_pos: ti.types.ndarray(dtype=gs.ti_vec3),
+    geoms_state_quat: ti.types.ndarray(dtype=gs.ti_quat),
+    geoms_info_data: ti.types.ndarray(dtype=gs.ti_float),
+):
+    capule_center = geoms_state_pos[i_g, i_b]
+    capsule_axis = gu.ti_transform_by_quat(ti.Vector([0.0, 0.0, 1.0], dt=gs.ti_float), geoms_state_quat[i_g, i_b])
+    capule_radius = geoms_info_data[i_g, 0]
+    capule_halflength = 0.5 * geoms_info_data[i_g, 1]
+    capule_endpoint_side = ti.math.sign(direction.dot(capsule_axis))
+    capule_endpoint = capule_center + capule_halflength * capule_endpoint_side * capsule_axis
+    return capule_endpoint + direction * capule_radius
+
+@ti.func
+def support_prism(
+    direction: gs.ti_vec3, 
+    i_g: ti.i32, 
+    i_b: ti.i32,
+    collider_prism: ti.types.ndarray(dtype=gs.ti_vec3),
+):
+    istart = 3
+    if direction[2] < 0:
+        istart = 0
+
+    ibest = istart
+    best = collider_prism[istart, i_b].dot(direction)
+    for i in range(istart + 1, istart + 3):
+        dot = collider_prism[i, i_b].dot(direction)
+        if dot > best:
+            ibest = i
+            best = dot
+
+    return collider_prism[ibest, i_b], ibest
+
+@ti.func
+def support_box(
+    direction: gs.ti_vec3, 
+    i_g: ti.i32, 
+    i_b: ti.i32,
+    geoms_info_data: ti.types.ndarray(dtype=gs.ti_float),
+    geoms_state_pos: ti.types.ndarray(dtype=gs.ti_vec3),
+    geoms_state_quat: ti.types.ndarray(dtype=gs.ti_quat),
+):
+    d_box = gu.ti_transform_by_quat(direction, gu.ti_inv_quat(geoms_state_quat[i_g, i_b]))
+
+    vid = (d_box[0] > 0) * 4 + (d_box[1] > 0) * 2 + (d_box[2] > 0) * 1
+    v_ = ti.Vector(
+        [
+            ti.math.sign(d_box[0]) * geoms_info_data[i_g, 0] * 0.5,
+            ti.math.sign(d_box[1]) * geoms_info_data[i_g, 1] * 0.5,
+            ti.math.sign(d_box[2]) * geoms_info_data[i_g, 2] * 0.5,
+        ],
+        dt=gs.ti_float,
+    )
+    vid += geoms_info_data[i_g, 3]
+    v = gu.ti_transform_by_trans_quat(v_, geoms_state_pos[i_g, i_b], geoms_state_quat[i_g, i_b])
+    return v, vid
+
+@ti.func
+def support_driver(
+    direction: gs.ti_vec3, 
+    i_g: ti.i32, 
+    i_b: ti.i32,
+    geoms_info_type: ti.types.ndarray(dtype=gs.GEOM_TYPE),
+
+):
+    v = ti.Vector.zero(gs.ti_float, 3)
+    geom_type = geoms_info_type[i_g]
+    if geom_type == gs.GEOM_TYPE.SPHERE:
+        v = support_sphere(direction, i_g, i_b)
+    elif geom_type == gs.GEOM_TYPE.ELLIPSOID:
+        v = support_ellipsoid(direction, i_g, i_b)
+    elif geom_type == gs.GEOM_TYPE.CAPSULE:
+        v = support_capsule(direction, i_g, i_b)
+    elif geom_type == gs.GEOM_TYPE.BOX:
+        v, _ = support_box(direction, i_g, i_b)
+    # TODO ndarray
+    # elif geom_type == gs.GEOM_TYPE.TERRAIN:
+    #     if ti.static(collider._has_terrain):
+    #         v, _ = support_prism(direction, i_g, i_b)
+    else:
+        v, _ = _func_support_world(direction, i_g, i_b)
+    return v
 
 
 @ti.func
