@@ -637,6 +637,8 @@ class MPR:
 
         return is_col, normal, penetration, pos
 
+from genesis.engine.solvers.rigid.support_field_decomp import _func_support_world
+
 CCD_EPS = 1e-9
 CCD_TOLERANCE = 1e-6
 _enable_mujoco_compatibility = False
@@ -719,10 +721,16 @@ def compute_support(
     direction: gs.ti_vec3, 
     i_ga: ti.i32, 
     i_gb: ti.i32, 
-    i_b: ti.i32
+    i_b: ti.i32,
+    geoms_info_type: ti.types.ndarray(dtype=gs.GEOM_TYPE),
+    geoms_state_pos: ti.types.ndarray(dtype=gs.ti_vec3),
+    geoms_state_quat: ti.types.ndarray(dtype=gs.ti_quat),
+    support_cell_start: ti.types.ndarray(dtype=gs.ti_int),
+    support_vid: ti.types.ndarray(dtype=gs.ti_int),
+    support_v: ti.types.ndarray(dtype=gs.ti_vec3),
 ):
-    v1 = support_driver(direction, i_ga, i_b)
-    v2 = support_driver(-direction, i_gb, i_b)
+    v1 = support_driver(direction, i_ga, i_b, geoms_info_type, geoms_state_pos, geoms_state_quat, support_cell_start, support_vid, support_v)
+    v2 = support_driver(-direction, i_gb, i_b, geoms_info_type, geoms_state_pos, geoms_state_quat, support_cell_start, support_vid, support_v)
 
     v = v1 - v2
     return v, v1, v2
@@ -765,7 +773,13 @@ def mpr_discover_portal(
     geoms_init_AABB: ti.types.ndarray(dtype=gs.ti_vec3),
     geom_state_pos: ti.types.ndarray(dtype=gs.ti_vec3),
     geom_state_quat: ti.types.ndarray(dtype=gs.ti_vec4),
-    geoms_info_center: ti.types.ndarray(dtype=gs.ti_vec3)
+    geoms_info_center: ti.types.ndarray(dtype=gs.ti_vec3),
+    geoms_info_type: ti.types.ndarray(dtype=gs.GEOM_TYPE),
+    geoms_state_pos: ti.types.ndarray(dtype=gs.ti_vec3),
+    geoms_state_quat: ti.types.ndarray(dtype=gs.ti_quat),
+    support_cell_start: ti.types.ndarray(dtype=gs.ti_int),
+    support_vid: ti.types.ndarray(dtype=gs.ti_int),
+    support_v: ti.types.ndarray(dtype=gs.ti_vec3),
 ):
     ret = 0
     simplex_size[i_ga, i_gb, i_b] = 0
@@ -819,7 +833,7 @@ def mpr_discover_portal(
 
     direction = -simplex_support_v[i_ga, i_gb, 0, i_b].normalized()
 
-    v, v1, v2 = compute_support(direction, i_ga, i_gb, i_b)
+    v, v1, v2 = compute_support(direction, i_ga, i_gb, i_b, geoms_info_type, geoms_state_pos, geoms_state_quat, support_cell_start, support_vid, support_v)
 
     simplex_support_v1[i_ga, i_gb, 1, i_b] = v1
     simplex_support_v2[i_ga, i_gb, 1, i_b] = v2
@@ -1000,7 +1014,11 @@ def support_driver(
     i_g: ti.i32, 
     i_b: ti.i32,
     geoms_info_type: ti.types.ndarray(dtype=gs.GEOM_TYPE),
-
+    geoms_state_pos: ti.types.ndarray(dtype=gs.ti_vec3),
+    geoms_state_quat: ti.types.ndarray(dtype=gs.ti_quat),
+    support_cell_start: ti.types.ndarray(dtype=gs.ti_int),
+    support_vid: ti.types.ndarray(dtype=gs.ti_int),
+    support_v: ti.types.ndarray(dtype=gs.ti_vec3),
 ):
     v = ti.Vector.zero(gs.ti_float, 3)
     geom_type = geoms_info_type[i_g]
@@ -1017,7 +1035,8 @@ def support_driver(
     #     if ti.static(collider._has_terrain):
     #         v, _ = support_prism(direction, i_g, i_b)
     else:
-        v, _ = _func_support_world(direction, i_g, i_b)
+        v, _ = _func_support_world(
+            direction, i_g, i_b, geoms_state_pos, geoms_state_quat, support_cell_start, support_vid, support_v)
     return v
 
 
@@ -1142,19 +1161,34 @@ def mpr_refine_portal(
     i_ga: ti.i32, 
     i_gb: ti.i32, 
     i_b: ti.i32, 
+    simplex_support_v: ti.types.ndarray(dtype=gs.ti_vec3),
+    simplex_support_v1: ti.types.ndarray(dtype=gs.ti_vec3),
+    simplex_support_v2: ti.types.ndarray(dtype=gs.ti_vec3),
 ):
     ret = 1
     while True:
-        direction = mpr_portal_dir(i_ga, i_gb, i_b)
+        direction = mpr_portal_dir(i_ga, i_gb, i_b, simplex_support_v)
 
-        if mpr_portal_encapsules_origin(direction, i_ga, i_gb, i_b):
+        if mpr_portal_encapsules_origin(direction, i_ga, i_gb, i_b, simplex_support_v):
             ret = 0
             break
 
-        v, v1, v2 = compute_support(direction, i_ga, i_gb, i_b)
-
+        v, v1, v2 = compute_support(
+            direction, 
+            i_ga, 
+            i_gb, 
+            i_b,
+            simplex_support_v,
+            simplex_support_v1,
+            simplex_support_v2
+        )
         if not mpr_portal_can_encapsule_origin(v, direction) or mpr_portal_reach_tolerance(
-            v, direction, i_ga, i_gb, i_b
+            v, 
+            direction, 
+            i_ga, 
+            i_gb, 
+            i_b,
+            simplex_support_v
         ):
             ret = -1
             break
@@ -1184,7 +1218,7 @@ def mpr_find_pos(
     sum_ = b.sum()
 
     if sum_ < CCD_EPS:
-        direction = mpr_portal_dir(i_ga, i_gb, i_b)
+        direction = mpr_portal_dir(i_ga, i_gb, i_b, simplex_support_v)
         b[0] = 0.0
         for i in range(1, 4):
             i1, i2 = i % 3 + 1, (i + 1) % 3 + 1
@@ -1218,7 +1252,7 @@ def mpr_find_penetration(
     penetration = gs.ti_float(0.0)
 
     while True:
-        direction = mpr_portal_dir(i_ga, i_gb, i_b)
+        direction = mpr_portal_dir(i_ga, i_gb, i_b, simplex_support_v)
         v, v1, v2 = compute_support(direction, i_ga, i_gb, i_b)
         if mpr_portal_reach_tolerance(v, direction, i_ga, i_gb, i_b) or iterations > CCD_ITERATIONS:
             # The contact point is defined as the projection of the origin onto the portal, i.e. the closest point
@@ -1255,18 +1289,73 @@ def mpr_find_penetration(
                 normal = -direction
 
             is_col = True
-            pos = mpr_find_pos(i_ga, i_gb, i_b)
+            pos = mpr_find_pos(
+                i_ga, 
+                i_gb, 
+                i_b, 
+                simplex_support_v,
+                simplex_support_v1,
+                simplex_support_v2)
             break
 
-        mpr_expand_portal(v, v1, v2, i_ga, i_gb, i_b)
+        mpr_expand_portal(
+            v, 
+            v1, 
+            v2, 
+            i_ga, 
+            i_gb, 
+            i_b,
+            simplex_support_v,
+            simplex_support_v1,
+            simplex_support_v2
+        )
         iterations += 1
 
     return is_col, normal, penetration, pos
 
 @ti.func
-def func_mpr_contact(i_ga, i_gb, i_b, normal_ws):
+def func_mpr_contact(
+    i_ga: ti.i32, 
+    i_gb: ti.i32, 
+    i_b: ti.i32, 
+    normal_ws: ti.types.ndarray(dtype=gs.ti_float),
+    simplex_size: ti.types.ndarray(dtype=gs.ti_int32),
+    simplex_support_v1: ti.types.ndarray(dtype=gs.ti_vec3),
+    simplex_support_v2: ti.types.ndarray(dtype=gs.ti_vec3),
+    simplex_support_v: ti.types.ndarray(dtype=gs.ti_vec3),
+    geoms_init_AABB: ti.types.ndarray(dtype=gs.ti_vec3),
+    geom_state_pos: ti.types.ndarray(dtype=gs.ti_vec3),
+    geom_state_quat: ti.types.ndarray(dtype=gs.ti_quat),
+    geoms_info_center: ti.types.ndarray(dtype=gs.ti_vec3),
+    geoms_info_type: ti.types.ndarray(dtype=gs.GEOM_TYPE),
+    geoms_state_pos: ti.types.ndarray(dtype=gs.ti_vec3),
+    geoms_state_quat: ti.types.ndarray(dtype=gs.ti_quat),
+    support_cell_start: ti.types.ndarray(dtype=gs.ti_int),
+    support_vid: ti.types.ndarray(dtype=gs.ti_int),
+    support_v: ti.types.ndarray(dtype=gs.ti_vec3),
 
-    res = mpr_discover_portal(i_ga, i_gb, i_b, normal_ws)
+):
+
+    res = mpr_discover_portal(
+        i_ga, 
+        i_gb, 
+        i_b, 
+        normal_ws,
+        simplex_size,
+        simplex_support_v1,
+        simplex_support_v2,
+        simplex_support_v,
+        geoms_init_AABB,
+        geom_state_pos,
+        geom_state_quat,
+        geoms_info_center,
+        geoms_info_type,
+        geoms_state_pos,
+        geoms_state_quat,
+        support_cell_start,
+        support_vid,
+        support_v
+    )
 
     is_col = False
     pos = gs.ti_vec3([0.0, 0.0, 0.0])
@@ -1274,12 +1363,38 @@ def func_mpr_contact(i_ga, i_gb, i_b, normal_ws):
     penetration = gs.ti_float(0.0)
 
     if res == 1:
-        is_col, normal, penetration, pos = mpr_find_penetr_touch(i_ga, i_gb, i_b)
+        is_col, normal, penetration, pos = mpr_find_penetr_touch(
+            i_ga, 
+            i_gb, 
+            i_b,
+            simplex_support_v1,
+            simplex_support_v2,
+            simplex_support_v
+        )
     elif res == 2:
-        is_col, normal, penetration, pos = mpr_find_penetr_segment(i_ga, i_gb, i_b)
+        is_col, normal, penetration, pos = mpr_find_penetr_segment(
+            i_ga, 
+            i_gb, 
+            i_b,
+            simplex_support_v1,
+            simplex_support_v2,
+            simplex_support_v
+        )
     elif res == 0:
-        res = mpr_refine_portal(i_ga, i_gb, i_b)
+        res = mpr_refine_portal(
+            i_ga, i_gb, i_b, 
+            simplex_support_v1,
+            simplex_support_v2,
+            simplex_support_v
+        )
         if res >= 0:
-            is_col, normal, penetration, pos = mpr_find_penetration(i_ga, i_gb, i_b)
+            is_col, normal, penetration, pos = mpr_find_penetration(
+                i_ga, 
+                i_gb, 
+                i_b,
+                simplex_support_v1,
+                simplex_support_v2,
+                simplex_support_v
+            )
 
     return is_col, normal, penetration, pos
