@@ -1,4 +1,5 @@
 from .data_class import DofsState, DofsInfo, GlobalData, vec_types, get_array_type
+from .mpr_decomp import func_mpr_contact
 
 import taichi as ti
 import genesis as gs
@@ -289,14 +290,89 @@ def _func_compute_tolerance(
 
 @ti.func
 def _func_geom_overlap_ratio(i_ga, i_gb, i_b):
-    # TODO ndarray
-    return 0.0
+    pass
+    # # Check if one geom 'i_ga' is likely fully (1) or partially (2) enclosed in another geom 'i_gb'.
+    # # 1. 'Broad phase': Check if bounding box 'i_ga' is fully enclosed into the other bounding box
+    # # 2. 'Mid phase': Check if rotated bounding box 'i_ga' is fully enclosed into the other bounding box
+    # # 3. 'Narrow phase': Check if all corners of rotated bounding box 'i_ga' are inside the other true geom
+    # overlap_ratio = gs.ti_float(0.0)
+
+    # # Broad phase 1
+    # is_enclosed_dims = (
+    #     geoms_state_aabb_min[i_gb, i_b] < geoms_state_aabb_min[i_ga, i_b]
+    # ) & (geoms_state_aabb_max[i_ga, i_b] < geoms_state_aabb_max[i_gb, i_b])
+
+    # # Mid phase 2
+    # if is_enclosed_dims.all():
+    #     for i_corner in ti.static((0, 7)):
+    #         corner_pos = gu.ti_inv_transform_by_trans_quat(
+    #             gu.ti_transform_by_trans_quat(
+    #                 geoms_init_AABB[i_ga, i_corner],
+    #                 geoms_state_pos[i_ga, i_b],
+    #                 geoms_state_quat[i_ga, i_b],
+    #             ),
+    #             geoms_state_pos[i_gb, i_b],
+    #             geoms_state_quat[i_gb, i_b],
+    #         )
+    #         if i_corner == 0:
+    #             is_enclosed_dims &= geoms_init_AABB[i_gb, i_corner] < corner_pos
+    #         else:
+    #             is_enclosed_dims &= corner_pos < geoms_init_AABB[i_gb, i_corner]
+
+    # # Narrow phase 3
+    # dists = ti.Vector.zero(gs.ti_float, 8)
+    # if is_enclosed_dims.all():
+    #     # Check whether the bound box 'i_ga' is fully enclosed
+    #     is_enclosed = True
+    #     for i_corner in range(8):
+    #         corner_pos = gu.ti_transform_by_trans_quat(
+    #             geoms_init_AABB[i_ga, i_corner],
+    #             geoms_state_pos[i_ga, i_b],
+    #             geoms_state_quat[i_ga, i_b],
+    #         )
+    #         dists[i_corner] = sdf_world(corner_pos, i_gb, i_b)
+    #         if dists[i_corner] > 0.0:
+    #             is_enclosed = False
+
+    #     # Approximate the overlapping ratio.
+    #     # It is defined as the ratio between the average signed distance of all the corners of the bounding box
+    #     # 'i_ga' from the true convex geometry 'i_gb', and the length of the box along this specific direction.
+    #     if is_enclosed:
+    #         overlap_ratio = 1.0
+    #     else:
+    #         box_size = geoms_init_AABB[i_ga, 7] - geoms_init_AABB[i_ga, 0]
+    #         dist_diff = ti.Vector(
+    #             [
+    #                 dists[4] + dists[5] + dists[6] + dists[7] - dists[0] - dists[1] - dists[2] - dists[3],
+    #                 dists[2] + dists[3] + dists[6] + dists[7] - dists[0] - dists[1] - dists[4] - dists[5],
+    #                 dists[1] + dists[3] + dists[5] + dists[7] - dists[0] - dists[2] - dists[4] - dists[6],
+    #             ],
+    #             dt=gs.ti_float,
+    #         )
+    #         overlap_dir = (dist_diff / box_size).normalized()
+    #         overlap_length = box_size.dot(ti.abs(overlap_dir))
+    #         overlap_ratio = ti.math.clamp(0.5 - (dists.sum() / 8) / overlap_length, 0.0, 1.0)
+
+    # return overlap_ratio
 
 
 @ti.func
-def _func_rotate_frame(i_ga, contact_pos_0, qrot, i_b):
-    # TODO
-    pass
+def _func_rotate_frame(
+    i_ga, 
+    contact_pos, 
+    qrot, 
+    i_b,
+    geoms_state_pos: ti.types.ndarray(),
+    geoms_state_quat: ti.types.ndarray(),
+):
+    geoms_state_quat[i_ga, i_b] = gu.ti_transform_quat_by_quat(
+        geoms_state_quat[i_ga, i_b], qrot
+    )
+
+    rel = contact_pos - geoms_state_pos[i_ga, i_b]
+    vec = gu.ti_transform_by_quat(rel, qrot)
+    vec = vec - rel
+    geoms_state_pos[i_ga, i_b] = geoms_state_pos[i_ga, i_b] - vec
 
 
 
