@@ -76,6 +76,32 @@ class GlobalData(DataClass):
         ############## broad phase SAP ##############
 
 
+        ############################## contact
+        _max_contact_pairs = 1090
+        self.contact_data_pos = self.VT(dtype=gs.ti_vec3, shape=f_batch((_max_contact_pairs)))
+        self.contact_data_normal = self.VT(dtype=gs.ti_vec3, shape=f_batch((_max_contact_pairs)))
+        self.contact_data_penetration = self.VT(dtype=gs.ti_float, shape=f_batch((_max_contact_pairs)))
+        self.contact_data_friction = self.VT(dtype=gs.ti_float, shape=f_batch((_max_contact_pairs)))
+        self.contact_data_sol_params = self.VT(dtype=gs.ti_vec7, shape=f_batch((_max_contact_pairs)))
+        self.contact_data_link_a = self.VT(dtype=gs.ti_int, shape=f_batch((_max_contact_pairs)))
+        self.contact_data_link_b = self.VT(dtype=gs.ti_int, shape=f_batch((_max_contact_pairs)))
+        self.contact_data_geom_a = self.VT(dtype=gs.ti_int, shape=f_batch((_max_contact_pairs)))
+        self.contact_data_geom_b = self.VT(dtype=gs.ti_int, shape=f_batch((_max_contact_pairs)))
+        self.n_contacts = self.VT(dtype=gs.ti_int, shape=f_batch())
+
+
+        ############################## mpr
+        n_support_cells = 777600
+        
+        self.simplex_size = self.VT(dtype=gs.ti_int, shape=f_batch((n_geoms, n_geoms)))
+        self.simplex_support_v1 = self.VT(dtype=gs.ti_vec3, shape=f_batch((n_geoms, n_geoms, 4)))
+        self.simplex_support_v2 = self.VT(dtype=gs.ti_vec3, shape=f_batch((n_geoms, n_geoms, 4)))
+        self.simplex_support_v = self.VT(dtype=gs.ti_vec3, shape=f_batch((n_geoms, n_geoms, 4)))
+        self.support_cell_start = self.VT(dtype=gs.ti_int, shape=(n_geoms))
+        self.support_vid = self.VT(dtype=gs.ti_int, shape=(n_support_cells))
+        self.support_v = self.VT(dtype=gs.ti_vec3, shape=(n_support_cells))
+        
+        ############################## 
 @ti.data_oriented
 class VertsInfo(DataClass):
     def __init__(self, is_ndarray: bool, n_verts: int):
@@ -154,7 +180,7 @@ class GeomsInfo(DataClass):
         self.pos = self.VT(dtype=gs.ti_vec3, shape=(n_geoms,))
         self.center = self.VT(dtype=gs.ti_vec3, shape=(n_geoms,))
         self.quat = self.VT(dtype=gs.ti_vec4, shape=(n_geoms,))
-        self.data = self.VT(dtype=gs.ti_vec7, shape=(n_geoms,))
+        self.data = self.VT(dtype=gs.ti_float, shape=(n_geoms,7))
         self.link_idx = self.VT(dtype=gs.ti_int, shape=(n_geoms,))
         self.type = self.VT(dtype=gs.ti_int, shape=(n_geoms,))
         self.friction = self.VT(dtype=gs.ti_float, shape=(n_geoms,))

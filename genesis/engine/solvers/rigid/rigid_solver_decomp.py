@@ -213,7 +213,7 @@ class RigidSolver(Solver):
             # self._init_equality_fields()
 
             # self._init_envs_offset()
-            # self._init_sdf()
+            self._init_sdf()
             self._init_collider()
             self._init_constraint_solver()
 
@@ -367,6 +367,7 @@ class RigidSolver(Solver):
         self._d.mass_parent_mask.from_numpy(mass_parent_mask)
 
         np.testing.assert_allclose(self.mass_parent_mask.to_numpy(), self._d.mass_parent_mask.to_numpy())
+        self._d.mass_parent_mask.from_numpy(mass_parent_mask)
 
     def _init_dof_fields(self):
         # TODO: awake_dofs
@@ -561,10 +562,15 @@ class RigidSolver(Solver):
             )
 
             np.testing.assert_allclose(self._dofs_info.motion_vel.to_numpy(), self.dofs_info.motion_vel.to_numpy())
+            self._dofs_info.motion_vel.from_numpy(self.dofs_info.motion_vel.to_numpy())
             np.testing.assert_allclose(self._dofs_info.sol_params.to_numpy(), self.dofs_info.sol_params.to_numpy())
+            self._dofs_info.sol_params.from_numpy(self.dofs_info.sol_params.to_numpy())
             np.testing.assert_allclose(self._dofs_info.stiffness.to_numpy(), self.dofs_info.stiffness.to_numpy())
+            self._dofs_info.stiffness.from_numpy(self.dofs_info.stiffness.to_numpy())
             np.testing.assert_allclose(self._dofs_info.motion_ang.to_numpy(), self.dofs_info.motion_ang.to_numpy())
+            self._dofs_info.motion_ang.from_numpy(self.dofs_info.motion_ang.to_numpy())
             np.testing.assert_allclose(self._dofs_info.motion_vel.to_numpy(), self.dofs_info.motion_vel.to_numpy())
+            self._dofs_info.motion_vel.from_numpy(self.dofs_info.motion_vel.to_numpy())
 
         self._dofs_state.force.fill(0)
 
@@ -1031,29 +1037,48 @@ class RigidSolver(Solver):
         )
 
         np.testing.assert_allclose(self._joints_info.pos.to_numpy(), self.joints_info.pos.to_numpy())
+        self._joints_info.pos.from_numpy(self.joints_info.pos.to_numpy())
         np.testing.assert_allclose(self._joints_info.sol_params.to_numpy(), self.joints_info.sol_params.to_numpy())
+        self._joints_info.sol_params.from_numpy(self.joints_info.sol_params.to_numpy())
         np.testing.assert_allclose(self._joints_info.q_start.to_numpy(), self.joints_info.q_start.to_numpy())
+        self._joints_info.q_start.from_numpy(self.joints_info.q_start.to_numpy())
         np.testing.assert_allclose(self._joints_info.dof_start.to_numpy(), self.joints_info.dof_start.to_numpy())
+        self._joints_info.dof_start.from_numpy(self.joints_info.dof_start.to_numpy())
         np.testing.assert_allclose(self._joints_info.q_end.to_numpy(), self.joints_info.q_end.to_numpy())
+        self._joints_info.q_end.from_numpy(self.joints_info.q_end.to_numpy())
         np.testing.assert_allclose(self._joints_info.dof_end.to_numpy(), self.joints_info.dof_end.to_numpy())
+        self._joints_info.dof_end.from_numpy(self.joints_info.dof_end.to_numpy())
         np.testing.assert_allclose(self._joints_info.n_dofs.to_numpy(), self.joints_info.n_dofs.to_numpy())
+        self._joints_info.n_dofs.from_numpy(self.joints_info.n_dofs.to_numpy())
         np.testing.assert_allclose(self._joints_info.type.to_numpy(), self.joints_info.type.to_numpy())
+        self._joints_info.type.from_numpy(self.joints_info.type.to_numpy())
         np.testing.assert_allclose(self._joints_info.sol_params.to_numpy(), self.joints_info.sol_params.to_numpy())
+        self._joints_info.sol_params.from_numpy(self.joints_info.sol_params.to_numpy())
 
         np.testing.assert_allclose(self._links_info.pos.to_numpy(), self.links_info.pos.to_numpy())
+        self._links_info.pos.from_numpy(self.links_info.pos.to_numpy())
         np.testing.assert_allclose(self._links_info.quat.to_numpy(), self.links_info.quat.to_numpy())
+        self._links_info.quat.from_numpy(self.links_info.quat.to_numpy())
         np.testing.assert_allclose(self._links_info.inertial_pos.to_numpy(), self.links_info.inertial_pos.to_numpy())
+        self._links_info.inertial_pos.from_numpy(self.links_info.inertial_pos.to_numpy())
         np.testing.assert_allclose(self._links_info.inertial_quat.to_numpy(), self.links_info.inertial_quat.to_numpy())
+        self._links_info.inertial_quat.from_numpy(self.links_info.inertial_quat.to_numpy())
         np.testing.assert_allclose(self._links_info.inertial_i.to_numpy(), self.links_info.inertial_i.to_numpy())
+        self._links_info.inertial_i.from_numpy(self.links_info.inertial_i.to_numpy())
         np.testing.assert_allclose(self._links_info.inertial_mass.to_numpy(), self.links_info.inertial_mass.to_numpy())
+        self._links_info.inertial_mass.from_numpy(self.links_info.inertial_mass.to_numpy())
         np.testing.assert_allclose(self._links_info.entity_idx.to_numpy(), self.links_info.entity_idx.to_numpy())
-
+        self._links_info.entity_idx.from_numpy(self.links_info.entity_idx.to_numpy())
         np.testing.assert_allclose(self._links_state.pos.to_numpy(), self.links_state.pos.to_numpy())
+        self._links_state.pos.from_numpy(self.links_state.pos.to_numpy())
         np.testing.assert_allclose(self._links_state.quat.to_numpy(), self.links_state.quat.to_numpy())
+        self._links_state.quat.from_numpy(self.links_state.quat.to_numpy())
         np.testing.assert_allclose(self._links_state.i_pos_shift.to_numpy(), self.links_state.i_pos_shift.to_numpy())
+        self._links_state.i_pos_shift.from_numpy(self.links_state.i_pos_shift.to_numpy())
         np.testing.assert_allclose(self._links_state.mass_shift.to_numpy(), self.links_state.mass_shift.to_numpy())
+        self._links_state.mass_shift.from_numpy(self.links_state.mass_shift.to_numpy())
         np.testing.assert_allclose(self._links_state.hibernated.to_numpy(), self.links_state.hibernated.to_numpy())
-
+        self._links_state.hibernated.from_numpy(self.links_state.hibernated.to_numpy())
         # TODO: change to VT
         VT = get_array_type(is_ndarray)
         self._qpos0 = VT(dtype=gs.ti_float, shape=self._batch_shape(self.n_qs_))
@@ -1331,19 +1356,30 @@ class RigidSolver(Solver):
             )
 
             np.testing.assert_allclose(self._verts_info.init_pos.to_numpy(), self.verts_info.init_pos.to_numpy())
+            self._verts_info.init_pos.from_numpy(self.verts_info.init_pos.to_numpy())
             np.testing.assert_allclose(self._verts_info.init_normal.to_numpy(), self.verts_info.init_normal.to_numpy())
+            self._verts_info.init_normal.from_numpy(self.verts_info.init_normal.to_numpy())
             np.testing.assert_allclose(
                 self._verts_info.init_center_pos.to_numpy(), self.verts_info.init_center_pos.to_numpy()
             )
+            self._verts_info.init_center_pos.from_numpy(self.verts_info.init_center_pos.to_numpy())
             np.testing.assert_allclose(self._verts_info.geom_idx.to_numpy(), self.verts_info.geom_idx.to_numpy())
+            self._verts_info.geom_idx.from_numpy(self.verts_info.geom_idx.to_numpy())
             np.testing.assert_allclose(
                 self._verts_info.verts_state_idx.to_numpy(), self.verts_info.verts_state_idx.to_numpy()
             )
+            self._verts_info.verts_state_idx.from_numpy(self.verts_info.verts_state_idx.to_numpy())
             np.testing.assert_allclose(self._verts_info.is_free.to_numpy(), self.verts_info.is_free.to_numpy())
+            self._verts_info.is_free.from_numpy(self.verts_info.is_free.to_numpy())
+
             np.testing.assert_allclose(self._faces_info.verts_idx.to_numpy(), self.faces_info.verts_idx.to_numpy())
+            self._faces_info.verts_idx.from_numpy(self.faces_info.verts_idx.to_numpy())
             np.testing.assert_allclose(self._edges_info.v0.to_numpy(), self.edges_info.v0.to_numpy())
+            self._edges_info.v0.from_numpy(self.edges_info.v0.to_numpy())
             np.testing.assert_allclose(self._edges_info.v1.to_numpy(), self.edges_info.v1.to_numpy())
+            self._edges_info.v1.from_numpy(self.edges_info.v1.to_numpy())
             np.testing.assert_allclose(self._edges_info.length.to_numpy(), self.edges_info.length.to_numpy())
+            self._edges_info.length.from_numpy(self.edges_info.length.to_numpy())
 
     def _init_vvert_fields(self):
         # visual geom
@@ -1429,12 +1465,21 @@ class RigidSolver(Solver):
             )
 
             np.testing.assert_allclose(self._vverts_info.init_pos.to_numpy(), self.vverts_info.init_pos.to_numpy())
+            self._vverts_info.init_pos.from_numpy(self.vverts_info.init_pos.to_numpy())
             np.testing.assert_allclose(
                 self._vverts_info.init_vnormal.to_numpy(), self.vverts_info.init_vnormal.to_numpy()
             )
+            self._vverts_info.init_vnormal.from_numpy(self.vverts_info.init_vnormal.to_numpy())
             np.testing.assert_allclose(self._vverts_info.vgeom_idx.to_numpy(), self.vverts_info.vgeom_idx.to_numpy())
-            np.testing.assert_allclose(self._vfaces_info.vverts_idx.to_numpy(), self.vfaces_info.vverts_idx.to_numpy())
-            np.testing.assert_allclose(self._vfaces_info.vgeom_idx.to_numpy(), self.vfaces_info.vgeom_idx.to_numpy())
+            self._vverts_info.vgeom_idx.from_numpy(self.vverts_info.vgeom_idx.to_numpy())
+            np.testing.assert_allclose(
+                self._vfaces_info.vverts_idx.to_numpy(), self.vfaces_info.vverts_idx.to_numpy()
+            )
+            self._vfaces_info.vverts_idx.from_numpy(self.vfaces_info.vverts_idx.to_numpy())
+            np.testing.assert_allclose(
+                self._vfaces_info.vgeom_idx.to_numpy(), self.vfaces_info.vgeom_idx.to_numpy()
+            )
+            self._vfaces_info.vgeom_idx.from_numpy(self.vfaces_info.vgeom_idx.to_numpy())
 
     @ti.kernel
     def _kernel_init_vert_fields(
@@ -1637,7 +1682,7 @@ class RigidSolver(Solver):
                 geoms_info_pos: VT.V3,
                 geoms_info_center: VT.V3,
                 geoms_info_quat: VT.V4,
-                geoms_info_data: VT.V7,
+                geoms_info_data: VT.F,
                 geoms_info_link_idx: VT.I,
                 geoms_info_type: VT.I,
                 geoms_info_friction: VT.F,
@@ -1675,7 +1720,7 @@ class RigidSolver(Solver):
                         geoms_info_quat[i][j] = np_geoms_quat[i, j]
 
                     for j in ti.static(range(7)):
-                        geoms_info_data[i][j] = np_geoms_data[i, j]
+                        geoms_info_data[i, j] = np_geoms_data[i, j]
                         geoms_info_sol_params[i][j] = np_geoms_sol_params[i, j]
                     # TODO: move this out of the kernel
                     geoms_info_sol_params[i][0] = geoms_info_sol_params[i][0]
@@ -1813,50 +1858,78 @@ class RigidSolver(Solver):
             )
 
             np.testing.assert_allclose(self._geoms_info.pos.to_numpy(), self.geoms_info.pos.to_numpy())
+            self._geoms_info.pos.from_numpy(self.geoms_info.pos.to_numpy())
             np.testing.assert_allclose(self._geoms_info.center.to_numpy(), self.geoms_info.center.to_numpy())
+            self._geoms_info.center.from_numpy(self.geoms_info.center.to_numpy())
             np.testing.assert_allclose(self._geoms_info.quat.to_numpy(), self.geoms_info.quat.to_numpy())
+            self._geoms_info.quat.from_numpy(self.geoms_info.quat.to_numpy())
             np.testing.assert_allclose(self._geoms_info.data.to_numpy(), self.geoms_info.data.to_numpy())
+            self._geoms_info.data.from_numpy(self.geoms_info.data.to_numpy())
             np.testing.assert_allclose(self._geoms_info.link_idx.to_numpy(), self.geoms_info.link_idx.to_numpy())
+            self._geoms_info.link_idx.from_numpy(self.geoms_info.link_idx.to_numpy())
             np.testing.assert_allclose(self._geoms_info.type.to_numpy(), self.geoms_info.type.to_numpy())
+            self._geoms_info.type.from_numpy(self.geoms_info.type.to_numpy())
             np.testing.assert_allclose(self._geoms_info.friction.to_numpy(), self.geoms_info.friction.to_numpy())
+            self._geoms_info.friction.from_numpy(self.geoms_info.friction.to_numpy())
+
             np.testing.assert_allclose(self._geoms_info.sol_params.to_numpy(), self.geoms_info.sol_params.to_numpy())
+            self._geoms_info.sol_params.from_numpy(self.geoms_info.sol_params.to_numpy())
             np.testing.assert_allclose(self._geoms_info.vert_start.to_numpy(), self.geoms_info.vert_start.to_numpy())
+            self._geoms_info.vert_start.from_numpy(self.geoms_info.vert_start.to_numpy())
             np.testing.assert_allclose(self._geoms_info.vert_end.to_numpy(), self.geoms_info.vert_end.to_numpy())
+            self._geoms_info.vert_end.from_numpy(self.geoms_info.vert_end.to_numpy())
             np.testing.assert_allclose(self._geoms_info.face_start.to_numpy(), self.geoms_info.face_start.to_numpy())
+            self._geoms_info.face_start.from_numpy(self.geoms_info.face_start.to_numpy())
             np.testing.assert_allclose(self._geoms_info.face_end.to_numpy(), self.geoms_info.face_end.to_numpy())
+            self._geoms_info.face_end.from_numpy(self.geoms_info.face_end.to_numpy())
             np.testing.assert_allclose(self._geoms_info.edge_start.to_numpy(), self.geoms_info.edge_start.to_numpy())
+            self._geoms_info.edge_start.from_numpy(self.geoms_info.edge_start.to_numpy())
             np.testing.assert_allclose(self._geoms_info.edge_end.to_numpy(), self.geoms_info.edge_end.to_numpy())
+            self._geoms_info.edge_end.from_numpy(self.geoms_info.edge_end.to_numpy())
             np.testing.assert_allclose(
                 self._geoms_info.verts_state_start.to_numpy(), self.geoms_info.verts_state_start.to_numpy()
             )
+            self._geoms_info.verts_state_start.from_numpy(self.geoms_info.verts_state_start.to_numpy())
             np.testing.assert_allclose(
                 self._geoms_info.verts_state_end.to_numpy(), self.geoms_info.verts_state_end.to_numpy()
             )
+            self._geoms_info.verts_state_end.from_numpy(self.geoms_info.verts_state_end.to_numpy())
             np.testing.assert_allclose(self._geoms_info.face_num.to_numpy(), self.geoms_info.face_num.to_numpy())
+            self._geoms_info.face_num.from_numpy(self.geoms_info.face_num.to_numpy())
             np.testing.assert_allclose(self._geoms_info.edge_num.to_numpy(), self.geoms_info.edge_num.to_numpy())
+            self._geoms_info.edge_num.from_numpy(self.geoms_info.edge_num.to_numpy())
             np.testing.assert_allclose(self._geoms_info.is_convex.to_numpy(), self.geoms_info.is_convex.to_numpy())
+            self._geoms_info.is_convex.from_numpy(self.geoms_info.is_convex.to_numpy())
             np.testing.assert_allclose(self._geoms_info.needs_coup.to_numpy(), self.geoms_info.needs_coup.to_numpy())
+            self._geoms_info.needs_coup.from_numpy(self.geoms_info.needs_coup.to_numpy())
             np.testing.assert_allclose(self._geoms_info.contype.to_numpy(), self.geoms_info.contype.to_numpy())
+            self._geoms_info.contype.from_numpy(self.geoms_info.contype.to_numpy())
             np.testing.assert_allclose(self._geoms_info.conaffinity.to_numpy(), self.geoms_info.conaffinity.to_numpy())
+            self._geoms_info.conaffinity.from_numpy(self.geoms_info.conaffinity.to_numpy())
             np.testing.assert_allclose(
                 self._geoms_info.coup_softness.to_numpy(), self.geoms_info.coup_softness.to_numpy()
             )
+            self._geoms_info.coup_softness.from_numpy(self.geoms_info.coup_softness.to_numpy())
             np.testing.assert_allclose(
                 self._geoms_info.coup_friction.to_numpy(), self.geoms_info.coup_friction.to_numpy()
             )
+            self._geoms_info.coup_friction.from_numpy(self.geoms_info.coup_friction.to_numpy())
             np.testing.assert_allclose(
                 self._geoms_info.coup_restitution.to_numpy(), self.geoms_info.coup_restitution.to_numpy()
             )
+            self._geoms_info.coup_restitution.from_numpy(self.geoms_info.coup_restitution.to_numpy())
             np.testing.assert_allclose(self._geoms_info.is_free.to_numpy(), self.geoms_info.is_free.to_numpy())
+            self._geoms_info.is_free.from_numpy(self.geoms_info.is_free.to_numpy())
             np.testing.assert_allclose(
                 self._geoms_info.is_decomposed.to_numpy(), self.geoms_info.is_decomposed.to_numpy()
             )
-
+            self._geoms_info.is_decomposed.from_numpy(self.geoms_info.is_decomposed.to_numpy())
             np.testing.assert_allclose(self._d.geoms_init_AABB.to_numpy(), self.geoms_init_AABB.to_numpy())
+            self._d.geoms_init_AABB.from_numpy(self.geoms_init_AABB.to_numpy())
             np.testing.assert_allclose(
                 self._geoms_state.friction_ratio.to_numpy(), self.geoms_state.friction_ratio.to_numpy()
             )
-
+            self._geoms_state.friction_ratio.from_numpy(self.geoms_state.friction_ratio.to_numpy())
     @ti.kernel
     def _kernel_init_geom_fields(
         self,
@@ -2080,18 +2153,27 @@ class RigidSolver(Solver):
             )
 
             np.testing.assert_allclose(self._vgeoms_info.pos.to_numpy(), self.vgeoms_info.pos.to_numpy())
+            self._vgeoms_info.pos.from_numpy(self.vgeoms_info.pos.to_numpy())
             np.testing.assert_allclose(self._vgeoms_info.quat.to_numpy(), self.vgeoms_info.quat.to_numpy())
+            self._vgeoms_info.quat.from_numpy(self.vgeoms_info.quat.to_numpy())
             np.testing.assert_allclose(self._vgeoms_info.link_idx.to_numpy(), self.vgeoms_info.link_idx.to_numpy())
+            self._vgeoms_info.link_idx.from_numpy(self.vgeoms_info.link_idx.to_numpy())
             np.testing.assert_allclose(
                 self._vgeoms_info.vvert_start.to_numpy(), self.vgeoms_info.vvert_start.to_numpy()
             )
+            self._vgeoms_info.vvert_start.from_numpy(self.vgeoms_info.vvert_start.to_numpy())
             np.testing.assert_allclose(self._vgeoms_info.vvert_end.to_numpy(), self.vgeoms_info.vvert_end.to_numpy())
+            self._vgeoms_info.vvert_end.from_numpy(self.vgeoms_info.vvert_end.to_numpy())
             np.testing.assert_allclose(self._vgeoms_info.vvert_num.to_numpy(), self.vgeoms_info.vvert_num.to_numpy())
+            self._vgeoms_info.vvert_num.from_numpy(self.vgeoms_info.vvert_num.to_numpy())
             np.testing.assert_allclose(
                 self._vgeoms_info.vface_start.to_numpy(), self.vgeoms_info.vface_start.to_numpy()
             )
+            self._vgeoms_info.vface_start.from_numpy(self.vgeoms_info.vface_start.to_numpy())
             np.testing.assert_allclose(self._vgeoms_info.vface_end.to_numpy(), self.vgeoms_info.vface_end.to_numpy())
+            self._vgeoms_info.vface_end.from_numpy(self.vgeoms_info.vface_end.to_numpy())
             np.testing.assert_allclose(self._vgeoms_info.vface_num.to_numpy(), self.vgeoms_info.vface_num.to_numpy())
+            self._vgeoms_info.vface_num.from_numpy(self.vgeoms_info.vface_num.to_numpy())
 
     @ti.kernel
     def _kernel_init_vgeom_fields(
@@ -2238,21 +2320,31 @@ class RigidSolver(Solver):
             np.testing.assert_allclose(
                 self._entities_info.dof_start.to_numpy(), self.entities_info.dof_start.to_numpy()
             )
+            self._entities_info.dof_start.from_numpy(self.entities_info.dof_start.to_numpy())
             np.testing.assert_allclose(self._entities_info.dof_end.to_numpy(), self.entities_info.dof_end.to_numpy())
+            self._entities_info.dof_end.from_numpy(self.entities_info.dof_end.to_numpy())
             np.testing.assert_allclose(self._entities_info.n_dofs.to_numpy(), self.entities_info.n_dofs.to_numpy())
+            self._entities_info.n_dofs.from_numpy(self.entities_info.n_dofs.to_numpy())
             np.testing.assert_allclose(
                 self._entities_info.link_start.to_numpy(), self.entities_info.link_start.to_numpy()
             )
+            self._entities_info.link_start.from_numpy(self.entities_info.link_start.to_numpy())
             np.testing.assert_allclose(self._entities_info.link_end.to_numpy(), self.entities_info.link_end.to_numpy())
+            self._entities_info.link_end.from_numpy(self.entities_info.link_end.to_numpy())
             np.testing.assert_allclose(self._entities_info.n_links.to_numpy(), self.entities_info.n_links.to_numpy())
+            self._entities_info.n_links.from_numpy(self.entities_info.n_links.to_numpy())
             np.testing.assert_allclose(
                 self._entities_info.geom_start.to_numpy(), self.entities_info.geom_start.to_numpy()
             )
+            self._entities_info.geom_start.from_numpy(self.entities_info.geom_start.to_numpy())
             np.testing.assert_allclose(self._entities_info.geom_end.to_numpy(), self.entities_info.geom_end.to_numpy())
+            self._entities_info.geom_end.from_numpy(self.entities_info.geom_end.to_numpy())
             np.testing.assert_allclose(self._entities_info.n_geoms.to_numpy(), self.entities_info.n_geoms.to_numpy())
+            self._entities_info.n_geoms.from_numpy(self.entities_info.n_geoms.to_numpy())
             np.testing.assert_allclose(
                 self._entities_info.gravity_compensation.to_numpy(), self.entities_info.gravity_compensation.to_numpy()
             )
+            self._entities_info.gravity_compensation.from_numpy(self.entities_info.gravity_compensation.to_numpy())
 
     @ti.kernel
     def _kernel_init_entity_fields(
@@ -3208,68 +3300,101 @@ class RigidSolver(Solver):
             geoms_state_verts_updated=self._geoms_state.verts_updated,
         )
 
-        print("make_kernel_step_1")
-        np.testing.assert_allclose(self._qpos.to_numpy(), self._qpos.to_numpy())
-        np.testing.assert_allclose(self._qpos0.to_numpy(), self._qpos0.to_numpy())
+        np.testing.assert_allclose(self._qpos.to_numpy(), self.qpos.to_numpy())
+        self._qpos.from_numpy(self.qpos.to_numpy())
+        np.testing.assert_allclose(self._qpos0.to_numpy(), self.qpos0.to_numpy())
+        self._qpos0.from_numpy(self.qpos0.to_numpy())
         np.testing.assert_allclose(self._joints_state.xanchor.to_numpy(), self.joints_state.xanchor.to_numpy())
+        self._joints_state.xanchor.from_numpy(self.joints_state.xanchor.to_numpy())
         np.testing.assert_allclose(self._joints_state.xaxis.to_numpy(), self.joints_state.xaxis.to_numpy())
+        self._joints_state.xaxis.from_numpy(self.joints_state.xaxis.to_numpy())
         np.testing.assert_allclose(self._dofs_state.pos.to_numpy(), self.dofs_state.pos.to_numpy())
+        self._dofs_state.pos.from_numpy(self.dofs_state.pos.to_numpy())
         np.testing.assert_allclose(self._links_state.pos.to_numpy(), self.links_state.pos.to_numpy())
+        self._links_state.pos.from_numpy(self.links_state.pos.to_numpy())
         np.testing.assert_allclose(self._links_state.quat.to_numpy(), self.links_state.quat.to_numpy())
+        self._links_state.quat.from_numpy(self.links_state.quat.to_numpy())
 
         np.testing.assert_allclose(self._links_state.mass_sum.to_numpy(), self.links_state.mass_sum.to_numpy())
+        self._links_state.mass_sum.from_numpy(self.links_state.mass_sum.to_numpy())
 
         np.testing.assert_allclose(self._links_info.inertial_pos.to_numpy(), self.links_info.inertial_pos.to_numpy())
-
-        # links_info_inertial_pos[I_l] + links_state_i_pos_shift[i_l, i_b], links_info_inertial_quat[I_l], links_state_pos[i_l, i_b], links_state_quat[i_l, i_b]
+        self._links_info.inertial_pos.from_numpy(self.links_info.inertial_pos.to_numpy())
         np.testing.assert_allclose(self._links_state.i_pos_shift.to_numpy(), self.links_state.i_pos_shift.to_numpy())
+        self._links_state.i_pos_shift.from_numpy(self.links_state.i_pos_shift.to_numpy())
         np.testing.assert_allclose(self._links_info.inertial_quat.to_numpy(), self.links_info.inertial_quat.to_numpy())
+        self._links_info.inertial_quat.from_numpy(self.links_info.inertial_quat.to_numpy())
 
         atol = 1e-6
         np.testing.assert_allclose(
             self._links_state.root_COM.to_numpy(), self.links_state.root_COM.to_numpy(), atol=atol
         )
+        self._links_state.root_COM.from_numpy(self.links_state.root_COM.to_numpy())
         np.testing.assert_allclose(self._links_state.i_quat.to_numpy(), self.links_state.i_quat.to_numpy(), atol=atol)
+        self._links_state.i_quat.from_numpy(self.links_state.i_quat.to_numpy())
         np.testing.assert_allclose(self._links_state.COM.to_numpy(), self.links_state.COM.to_numpy(), atol=atol)
+        self._links_state.COM.from_numpy(self.links_state.COM.to_numpy())
         np.testing.assert_allclose(
             self._links_state.cinr_inertial.to_numpy(), self.links_state.cinr_inertial.to_numpy(), atol=atol
         )
+        self._links_state.cinr_inertial.from_numpy(self.links_state.cinr_inertial.to_numpy())
         np.testing.assert_allclose(
             self._links_state.cinr_pos.to_numpy(), self.links_state.cinr_pos.to_numpy(), atol=atol
         )
+        self._links_state.cinr_pos.from_numpy(self.links_state.cinr_pos.to_numpy())
         np.testing.assert_allclose(
             self._links_state.cinr_quat.to_numpy(), self.links_state.cinr_quat.to_numpy(), atol=atol
         )
+        self._links_state.cinr_quat.from_numpy(self.links_state.cinr_quat.to_numpy())
         np.testing.assert_allclose(
             self._links_state.cinr_mass.to_numpy(), self.links_state.cinr_mass.to_numpy(), atol=atol
         )
+        self._links_state.cinr_mass.from_numpy(self.links_state.cinr_mass.to_numpy())
         np.testing.assert_allclose(self._links_state.j_pos.to_numpy(), self.links_state.j_pos.to_numpy(), atol=atol)
+        self._links_state.j_pos.from_numpy(self.links_state.j_pos.to_numpy())
         np.testing.assert_allclose(self._links_state.j_quat.to_numpy(), self.links_state.j_quat.to_numpy(), atol=atol)
+        self._links_state.j_quat.from_numpy(self.links_state.j_quat.to_numpy())
         np.testing.assert_allclose(self._dofs_state.cdof_ang.to_numpy(), self.dofs_state.cdof_ang.to_numpy(), atol=atol)
+        self._dofs_state.cdof_ang.from_numpy(self.dofs_state.cdof_ang.to_numpy())
         np.testing.assert_allclose(self._dofs_state.cdof_vel.to_numpy(), self.dofs_state.cdof_vel.to_numpy(), atol=atol)
+        self._dofs_state.cdof_vel.from_numpy(self.dofs_state.cdof_vel.to_numpy())
         np.testing.assert_allclose(
             self._dofs_state.cdofvel_ang.to_numpy(), self.dofs_state.cdofvel_ang.to_numpy(), atol=atol
         )
+        self._dofs_state.cdofvel_ang.from_numpy(self.dofs_state.cdofvel_ang.to_numpy())
         np.testing.assert_allclose(
             self._dofs_state.cdofvel_vel.to_numpy(), self.dofs_state.cdofvel_vel.to_numpy(), atol=atol
         )
+        self._dofs_state.cdofvel_vel.from_numpy(self.dofs_state.cdofvel_vel.to_numpy())
 
         np.testing.assert_allclose(self._links_state.i_pos.to_numpy(), self.links_state.i_pos.to_numpy(), atol=atol)
+        self._links_state.i_pos.from_numpy(self.links_state.i_pos.to_numpy())
         np.testing.assert_allclose(self._links_state.cd_vel.to_numpy(), self.links_state.cd_vel.to_numpy(), atol=atol)
+        self._links_state.cd_vel.from_numpy(self.links_state.cd_vel.to_numpy())
         np.testing.assert_allclose(self._links_state.cd_ang.to_numpy(), self.links_state.cd_ang.to_numpy(), atol=atol)
+        self._links_state.cd_ang.from_numpy(self.links_state.cd_ang.to_numpy())
         np.testing.assert_allclose(self._links_state.vel.to_numpy(), self.links_state.vel.to_numpy(), atol=atol)
+        self._links_state.vel.from_numpy(self.links_state.vel.to_numpy())
         np.testing.assert_allclose(self._links_state.ang.to_numpy(), self.links_state.ang.to_numpy(), atol=atol)
+        self._links_state.ang.from_numpy(self.links_state.ang.to_numpy())
         np.testing.assert_allclose(self._dofs_state.vel.to_numpy(), self.dofs_state.vel.to_numpy(), atol=atol)
+        self._dofs_state.vel.from_numpy(self.dofs_state.vel.to_numpy())
 
         np.testing.assert_allclose(self._geoms_state.pos.to_numpy(), self.geoms_state.pos.to_numpy(), atol=atol)
+        self._geoms_state.pos.from_numpy(self.geoms_state.pos.to_numpy())
         np.testing.assert_allclose(self._geoms_state.quat.to_numpy(), self.geoms_state.quat.to_numpy(), atol=atol)
+        self._geoms_state.quat.from_numpy(self.geoms_state.quat.to_numpy())
         np.testing.assert_allclose(
             self._geoms_state.verts_updated.to_numpy(), self.geoms_state.verts_updated.to_numpy(), atol=atol
         )
+        self._geoms_state.verts_updated.from_numpy(self.geoms_state.verts_updated.to_numpy())
 
         np.testing.assert_allclose(self._geoms_info.link_idx.to_numpy(), self.geoms_info.link_idx.to_numpy(), atol=atol)
+        self._geoms_info.link_idx.from_numpy(self.geoms_info.link_idx.to_numpy())
         np.testing.assert_allclose(self._geoms_info.pos.to_numpy(), self.geoms_info.pos.to_numpy(), atol=atol)
+        self._geoms_info.pos.from_numpy(self.geoms_info.pos.to_numpy())
         np.testing.assert_allclose(self._geoms_info.quat.to_numpy(), self.geoms_info.quat.to_numpy(), atol=atol)
+        self._geoms_info.quat.from_numpy(self.geoms_info.quat.to_numpy())
 
         ## timing
 

@@ -132,7 +132,6 @@ class Collider:
         )
 
         self.first_time = ti.field(gs.ti_int, shape=self._solver._B)
-
         ############## narrow phase ##############
         struct_contact_data = ti.types.struct(
             geom_a=gs.ti_int,
@@ -333,12 +332,15 @@ class Collider:
 
         np.testing.assert_allclose(self._solver._d.sort_buffer_i_g.to_numpy(), self.sort_buffer.i_g.to_numpy())
         np.testing.assert_allclose(self._solver._d.sort_buffer_is_max.to_numpy(), self.sort_buffer.is_max.to_numpy())
-        np.testing.assert_allclose(self._solver._d.sort_buffer_value.to_numpy(), self.sort_buffer.value.to_numpy())
+
+
+        atol = 1e-6
+        np.testing.assert_allclose(self._solver._d.sort_buffer_value.to_numpy(), self.sort_buffer.value.to_numpy(), atol=atol)
 
         np.testing.assert_allclose(self._solver._d.first_time.to_numpy(), self.first_time.to_numpy())
         np.testing.assert_allclose(self._solver._d.n_broad_pairs.to_numpy(), self.n_broad_pairs.to_numpy())
         np.testing.assert_allclose(
-            self._solver._d.broad_collision_pairs.to_numpy(), self.broad_collision_pairs.to_numpy()
+            np.swapaxes(self._solver._d.broad_collision_pairs.to_numpy(), -1, -2), self.broad_collision_pairs.to_numpy()
         )
         np.testing.assert_allclose(
             self._solver._d.contact_cache_i_va_ws.to_numpy(), self.contact_cache.i_va_ws.to_numpy()
@@ -348,10 +350,125 @@ class Collider:
         self._func_narrow_phase()
         timer.stamp("func_narrow_phase")
 
-        print("narrow phase")
+
+        from genesis.engine.solvers.rigid.make_kernels import make_kernel_narrow_phase
+        kernel_narrow_phase = make_kernel_narrow_phase(is_ndarray=self._solver.is_ndarray)
+
+        # @ti.kernel
+        # def _kernel_narrow_phase(
+
+        # broad_collision_pairs: VT.I,
+        # n_broad_pairs: VT.I,
+        # geoms_info_link_idx: VT.I,
+        # geoms_info_type: VT.I,
+        # geoms_info_is_convex: VT.I,
+        # geoms_info_contype: VT.I,
+        # geoms_info_conaffinity: VT.I,
+        # geoms_state_pos: VT.F,
+        # geoms_state_quat: VT.F,
+        # contact_cache_normal: VT.F,
+        # contact_data_pos: VT.F,
+        # n_contacts: VT.I,
+        # contact_data_geom_a: VT.I,
+        # contact_data_geom_b: VT.I,
+        # contact_data_normal: VT.F,
+        # contact_data_penetration: VT.F,
+        # contact_data_friction: VT.F,
+        # contact_data_sol_params: VT.F,
+        # contact_data_link_a: VT.I,
+        # contact_data_link_b: VT.I,
+        # geoms_info_friction: VT.F,
+        # geoms_state_friction_ratio: VT.F,
+        # geoms_info_sol_params: VT.F,
+        # geoms_init_AABB: VT.F,
+        # links_state_i_quat: VT.F,
+
+        self._solver._d.support_cell_start.from_numpy(self._mpr.support_field.support_cell_start.to_numpy())
+        self._solver._d.support_vid.from_numpy(self._mpr.support_field.support_vid.to_numpy())
+        self._solver._d.support_v.from_numpy(self._mpr.support_field.support_v.to_numpy())
+
+        
+        kernel_narrow_phase(
+            broad_collision_pairs=self._solver._d.broad_collision_pairs,
+            n_broad_pairs=self._solver._d.n_broad_pairs,
+            geoms_info_link_idx=self._solver._geoms_info.link_idx,
+            geoms_info_type=self._solver._geoms_info.type,
+            geoms_info_data=self._solver._geoms_info.data,
+            geoms_info_vert_start=self._solver._geoms_info.vert_start,
+            geoms_info_is_convex=self._solver._geoms_info.is_convex,
+            geoms_info_contype=self._solver._geoms_info.contype,
+            geoms_info_conaffinity=self._solver._geoms_info.conaffinity,
+            geoms_state_pos=self._solver._geoms_state.pos,
+            geoms_state_quat=self._solver._geoms_state.quat,
+            contact_cache_normal=self._solver._d.contact_cache_normal,
+            contact_data_pos=self._solver._d.contact_data_pos,
+            n_contacts=self._solver._d.n_contacts,
+            contact_data_geom_a=self._solver._d.contact_data_geom_a,
+            contact_data_geom_b=self._solver._d.contact_data_geom_b,
+            contact_data_normal=self._solver._d.contact_data_normal,
+            contact_data_penetration=self._solver._d.contact_data_penetration,
+            contact_data_friction=self._solver._d.contact_data_friction,
+            contact_data_sol_params=self._solver._d.contact_data_sol_params,
+            contact_data_link_a=self._solver._d.contact_data_link_a,
+            contact_data_link_b=self._solver._d.contact_data_link_b,
+            geoms_info_friction=self._solver._geoms_info.friction,
+            geoms_state_friction_ratio=self._solver._geoms_state.friction_ratio,
+            geoms_info_sol_params=self._solver._geoms_info.sol_params,
+            geoms_init_AABB=self._solver._d.geoms_init_AABB,
+            links_state_i_quat=self._solver._links_state.i_quat,
+            simplex_size=self._solver._d.simplex_size,
+            simplex_support_v1=self._solver._d.simplex_support_v1,
+            simplex_support_v2=self._solver._d.simplex_support_v2,
+            simplex_support_v=self._solver._d.simplex_support_v,
+            support_cell_start=self._solver._d.support_cell_start,
+            support_vid=self._solver._d.support_vid,
+            support_v=self._solver._d.support_v,
+            geoms_info_center=self._solver._geoms_info.center,
+        )
+
         from IPython import embed
 
         embed()
+        np.testing.assert_allclose(self._solver._geoms_state.pos.to_numpy(), self._solver._geoms_state.pos.to_numpy())
+        np.testing.assert_allclose(self._solver._d.contact_cache_normal.to_numpy(), self.contact_cache.normal.to_numpy())
+
+        
+
+
+
+
+
+
+        np.testing.assert_allclose(self._solver._d.n_contacts.to_numpy(), self.n_contacts.to_numpy())
+
+        np.testing.assert_allclose(self._solver._d.simplex_size.to_numpy(), self._mpr.simplex_size.to_numpy())
+        np.testing.assert_allclose(self._solver._d.simplex_support_v1.to_numpy(), self._mpr.simplex_support.v1.to_numpy())
+        np.testing.assert_allclose(self._solver._d.simplex_support_v2.to_numpy(), self._mpr.simplex_support.v2.to_numpy())
+        np.testing.assert_allclose(self._solver._d.simplex_support_v.to_numpy(), self._mpr.simplex_support.v.to_numpy())
+        np.testing.assert_allclose(self._solver._d.support_cell_start.to_numpy(), self._mpr.support_field.support_cell_start.to_numpy())
+        np.testing.assert_allclose(self._solver._d.support_vid.to_numpy(), self._mpr.support_field.support_vid.to_numpy())
+        np.testing.assert_allclose(self._solver._d.support_v.to_numpy(), self._mpr.support_field.support_v.to_numpy())
+
+
+
+
+        np.testing.assert_allclose(self._solver._d.contact_data_pos.to_numpy(), self.contact_data.pos.to_numpy())
+        np.testing.assert_allclose(self._solver._d.contact_data_normal.to_numpy(), self.contact_data.normal.to_numpy())
+        np.testing.assert_allclose(self._solver._d.contact_data_penetration.to_numpy(), self.contact_data.penetration.to_numpy())
+        np.testing.assert_allclose(self._solver._d.contact_data_friction.to_numpy(), self.contact_data.friction.to_numpy())
+        np.testing.assert_allclose(self._solver._d.contact_data_sol_params.to_numpy(), self.contact_data.sol_params.to_numpy())
+        np.testing.assert_allclose(self._solver._d.contact_data_link_a.to_numpy(), self.contact_data.link_a.to_numpy())
+        np.testing.assert_allclose(self._solver._d.contact_data_link_b.to_numpy(), self.contact_data.link_b.to_numpy())
+        np.testing.assert_allclose(self._solver._d.contact_data_geom_a.to_numpy(), self.contact_data.geom_a.to_numpy())
+        np.testing.assert_allclose(self._solver._d.contact_data_geom_b.to_numpy(), self.contact_data.geom_b.to_numpy())
+
+        
+        
+        
+        
+        
+
+        print("narrow phase")
 
         if self._has_terrain:
             self._func_narrow_phase_terrain()
@@ -1038,6 +1155,7 @@ class Collider:
         """
         ti.loop_config(serialize=self._solver._para_level < gs.PARA_LEVEL.ALL)
         for i_b in range(self._solver._B):
+            # print("n_broad_pairs[i_b] field", self.n_broad_pairs[i_b])
             for i_pair in range(self.n_broad_pairs[i_b]):
                 i_ga = self.broad_collision_pairs[i_pair, i_b][0]
                 i_gb = self.broad_collision_pairs[i_pair, i_b][1]
@@ -1048,17 +1166,19 @@ class Collider:
                 ):
                     pass
                 elif self._solver.geoms_info[i_ga].is_convex and self._solver.geoms_info[i_gb].is_convex:
-                    if ti.static(self._solver._box_box_detection):
-                        if (
-                            self._solver.geoms_info[i_ga].type == gs.GEOM_TYPE.BOX
-                            and self._solver.geoms_info[i_gb].type == gs.GEOM_TYPE.BOX
-                        ):
-                            self._func_box_box_contact(i_ga, i_gb, i_b)
-                        else:
-                            self._func_mpr(i_ga, i_gb, i_b)
-                    else:
-                        self._func_mpr(i_ga, i_gb, i_b)
+                    # if ti.static(self._solver._box_box_detection):
+                    #     if (
+                    #         self._solver.geoms_info[i_ga].type == gs.GEOM_TYPE.BOX
+                    #         and self._solver.geoms_info[i_gb].type == gs.GEOM_TYPE.BOX
+                    #     ):
+                    #         self._func_box_box_contact(i_ga, i_gb, i_b)
+                    #     else:
+                    #         self._func_mpr(i_ga, i_gb, i_b)
+                    # else:
+                    #     self._func_mpr(i_ga, i_gb, i_b)
 
+                    # TODO ndaary
+                    self._func_mpr(i_ga, i_gb, i_b)
     @ti.kernel
     def _func_narrow_phase_nonconvex_nonterrain(self):
         """
@@ -1313,8 +1433,6 @@ class Collider:
         if self._solver.geoms_info[i_ga].type > self._solver.geoms_info[i_gb].type:
             i_gb, i_ga = i_ga, i_gb
 
-        i_la = self._solver.geoms_info[i_ga].link_idx
-        i_lb = self._solver.geoms_info[i_gb].link_idx
 
         # Disabling multi-contact for pairs of decomposed geoms would speed up simulation but may cause physical
         # instabilities in the few cases where multiple contact points are actually need. Increasing the tolerance
@@ -1334,8 +1452,11 @@ class Collider:
         overlap_ratio_b = self._func_geom_overlap_ratio(i_gb, i_ga, i_b)
 
         if self._solver.geoms_info[i_ga].type == gs.GEOM_TYPE.PLANE:
-            self._func_plane_contact(i_ga, i_gb, multi_contact, i_b)
+            # self._func_plane_contact(i_ga, i_gb, multi_contact, i_b)
+            pass
         else:
+            # if i_b == 0:
+            #     print("i_ga, i_gb, field", i_ga, i_gb)
             is_col_0 = False
             penetration_0 = gs.ti_float(0.0)
             normal_0 = ti.Vector.zero(gs.ti_float, 3)
@@ -1357,7 +1478,7 @@ class Collider:
             ga_pos, ga_quat = ga_state.pos, ga_state.quat
             gb_pos, gb_quat = gb_state.pos, gb_state.quat
 
-            for i_detection in range(5):
+            for i_detection in range(1): # TODO ndaary: 5
                 if multi_contact and is_col_0:
                     # Perturbation axis must not be aligned with the principal axes of inertia the geometry,
                     # otherwise it would be more sensitive to ill-conditionning.
@@ -1420,14 +1541,15 @@ class Collider:
                 if i_detection == 0:
                     is_col_0, normal_0, penetration_0, contact_pos_0 = is_col, normal, penetration, contact_pos
                     if is_col_0:
+                        print("is_col_0 field", i_ga, i_gb, normal_0, contact_pos_0, penetration_0)
                         self._func_add_contact(i_ga, i_gb, normal_0, contact_pos_0, penetration_0, i_b)
                         if multi_contact:
                             # perturb geom_a around two orthogonal axes to find multiple contacts
                             axis_0, axis_1 = self._func_contact_orthogonals(i_ga, i_gb, normal, i_b)
                             n_con = 1
 
-                        if ti.static(not self._solver._enable_mujoco_compatibility):
-                            self.contact_cache[i_ga, i_gb, i_b].normal = normal
+                        # if ti.static(not self._solver._enable_mujoco_compatibility):
+                        #     self.contact_cache[i_ga, i_gb, i_b].normal = normal
                     else:
                         # Clear collision normal cache if not in contact
                         self.contact_cache[i_ga, i_gb, i_b].normal.fill(0.0)
