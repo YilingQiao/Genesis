@@ -65,7 +65,7 @@ class RigidSolver(Solver):
         self._enable_multi_contact = options.enable_multi_contact
         self._enable_mujoco_compatibility = options.enable_mujoco_compatibility
         # TODO ndarray
-        self._enable_mujoco_compatibility = True
+        self._enable_mujoco_compatibility = False
         self._enable_joint_limit = options.enable_joint_limit
         self._enable_self_collision = options.enable_self_collision
         self._enable_adjacent_collision = options.enable_adjacent_collision

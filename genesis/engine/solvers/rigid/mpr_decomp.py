@@ -307,21 +307,11 @@ class MPR:
         while True:
             direction = self.mpr_portal_dir(i_ga, i_gb, i_b)
 
-            if i_ga == 19 and i_gb == 12 and i_b == 0:
-                print("------------------- field")
-                for i in range(4):
-                    print(self.simplex_support[i_ga, i_gb, i, i_b].v)
-                print("mpr_portal_encapsules_origin field", direction, self.simplex_support[i_ga, i_gb, 1, i_b].v, self.mpr_portal_encapsules_origin(direction, i_ga, i_gb, i_b))
             if self.mpr_portal_encapsules_origin(direction, i_ga, i_gb, i_b):
                 ret = 0
                 break
 
             v, v1, v2 = self.compute_support(direction, i_ga, i_gb, i_b)
-            if i_ga == 19 and i_gb == 12:
-                print("refine v field", v)
-                print("refine v1 field", v1)
-                print("refine v2 field", v2)
-                print("refine direction field", direction)
 
             if not self.mpr_portal_can_encapsule_origin(v, direction) or self.mpr_portal_reach_tolerance(
                 v, direction, i_ga, i_gb, i_b
@@ -625,9 +615,6 @@ class MPR:
                             self.simplex_support[i_ga, i_gb, 3, i_b].v = v
                             self.simplex_size[i_ga, i_gb, i_b] = 4
 
-        if i_ga == 19 and i_gb == 12:
-            for i in range(4):
-                print("simplex_support[i_ga, i_b].v field", i, self.simplex_support[i_ga, i_gb, i, i_b].v)
         return ret
 
     @ti.func
@@ -645,8 +632,6 @@ class MPR:
             is_col, normal, penetration, pos = self.mpr_find_penetr_segment(i_ga, i_gb, i_b)
         elif res == 0:
             res = self.mpr_refine_portal(i_ga, i_gb, i_b)
-            if i_ga == 19 and i_gb == 12:
-                print("res field", res)
             if res >= 0:
                 is_col, normal, penetration, pos = self.mpr_find_penetration(i_ga, i_gb, i_b)
 

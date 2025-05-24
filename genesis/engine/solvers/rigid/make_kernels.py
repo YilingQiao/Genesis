@@ -11,66 +11,6 @@ batch_links_info = False
 max_collision_pairs = 8192
 
 
-@ti.func
-def _func_check_collision_valid(
-    i_ga: gs.ti_int,
-    i_gb: gs.ti_int,
-    i_b: gs.ti_int,
-    links_info_root_idx: ti.types.ndarray(),
-    links_info_parent_idx: ti.types.ndarray(),
-    geoms_info_link_idx: ti.types.ndarray(),
-    geoms_info_contype: ti.types.ndarray(),
-    geoms_info_conaffinity: ti.types.ndarray(),
-    links_info_is_fixed: ti.types.ndarray(),
-) -> bool:
-
-    i_la = geoms_info_link_idx[i_ga]
-    i_lb = geoms_info_link_idx[i_gb]
-    I_la = [i_la, i_b] if ti.static(batch_links_info) else i_la
-    I_lb = [i_lb, i_b] if ti.static(batch_links_info) else i_lb
-    is_valid = True
-
-    # geoms in the same link
-    if i_la == i_lb:
-        is_valid = False
-
-    # self collision
-    if ti.static(not _enable_self_collision) and links_info_root_idx[I_la] == links_info_root_idx[I_lb]:
-        is_valid = False
-
-    # adjacent links
-    if ti.static(not _enable_adjacent_collision) and (
-        links_info_parent_idx[I_la] == i_lb or links_info_parent_idx[I_lb] == i_la
-    ):
-        is_valid = False
-
-    # contype and conaffinity
-    if not (
-        (geoms_info_contype[i_ga] & geoms_info_conaffinity[i_gb])
-        or (geoms_info_contype[i_gb] & geoms_info_conaffinity[i_ga])
-    ):
-        is_valid = False
-
-    # pair of fixed links wrt the world
-    if links_info_is_fixed[I_la] and links_info_is_fixed[I_lb]:
-        is_valid = False
-
-    return is_valid
-
-
-@ti.func
-def _func_is_geom_aabbs_overlap(
-    i_ga: gs.ti_int,
-    i_gb: gs.ti_int,
-    i_b: gs.ti_int,
-    geoms_state_aabb_max: ti.types.ndarray(),
-    geoms_state_aabb_min: ti.types.ndarray(),
-) -> bool:
-    return not (
-        (geoms_state_aabb_max[i_ga, i_b] <= geoms_state_aabb_min[i_gb, i_b]).any()
-        or (geoms_state_aabb_min[i_ga, i_b] >= geoms_state_aabb_max[i_gb, i_b]).any()
-    )
-
 
 def make_kernel_reset_collider(is_ndarray: bool, is_serial: bool = False):
     VT = vec_types(is_ndarray)
@@ -99,6 +39,66 @@ def make_kernel_reset_collider(is_ndarray: bool, is_serial: bool = False):
 
 def make_kernel_update_aabbs(is_ndarray: bool, is_serial: bool = False):
     VT = vec_types(is_ndarray)
+
+    @ti.func
+    def _func_is_geom_aabbs_overlap(
+        i_ga: gs.ti_int,
+        i_gb: gs.ti_int,
+        i_b: gs.ti_int,
+        geoms_state_aabb_max: VT.V3,
+        geoms_state_aabb_min: VT.V3,
+    ) -> bool:
+        return not (
+            (geoms_state_aabb_max[i_ga, i_b] <= geoms_state_aabb_min[i_gb, i_b]).any()
+            or (geoms_state_aabb_min[i_ga, i_b] >= geoms_state_aabb_max[i_gb, i_b]).any()
+        )
+
+    @ti.func
+    def _func_check_collision_valid(
+        i_ga: gs.ti_int,
+        i_gb: gs.ti_int,
+        i_b: gs.ti_int,
+        links_info_root_idx: VT.I,
+        links_info_parent_idx: VT.I,
+        geoms_info_link_idx: VT.I,
+        geoms_info_contype: VT.I,
+        geoms_info_conaffinity: VT.I,
+        links_info_is_fixed: VT.I,
+    ) -> bool:
+
+        i_la = geoms_info_link_idx[i_ga]
+        i_lb = geoms_info_link_idx[i_gb]
+        I_la = [i_la, i_b] if ti.static(batch_links_info) else i_la
+        I_lb = [i_lb, i_b] if ti.static(batch_links_info) else i_lb
+        is_valid = True
+
+        # geoms in the same link
+        if i_la == i_lb:
+            is_valid = False
+
+        # self collision
+        if ti.static(not _enable_self_collision) and links_info_root_idx[I_la] == links_info_root_idx[I_lb]:
+            is_valid = False
+
+        # adjacent links
+        if ti.static(not _enable_adjacent_collision) and (
+            links_info_parent_idx[I_la] == i_lb or links_info_parent_idx[I_lb] == i_la
+        ):
+            is_valid = False
+
+        # contype and conaffinity
+        if not (
+            (geoms_info_contype[i_ga] & geoms_info_conaffinity[i_gb])
+            or (geoms_info_contype[i_gb] & geoms_info_conaffinity[i_ga])
+        ):
+            is_valid = False
+
+        # pair of fixed links wrt the world
+        if links_info_is_fixed[I_la] and links_info_is_fixed[I_lb]:
+            is_valid = False
+
+        return is_valid
+
 
     @ti.kernel
     def _kernel_update_aabbs(
@@ -270,18 +270,6 @@ _enable_mujoco_compatibility = False
 _max_contact_pairs = 8192
 
 
-@ti.func
-def _func_compute_tolerance(
-    i_ga: gs.ti_int,
-    i_gb: gs.ti_int,
-    i_b: gs.ti_int,
-    geoms_init_AABB: ti.types.ndarray(),
-):
-    aabb_size_a = geoms_init_AABB[i_ga, 7] - geoms_init_AABB[i_ga, 0]
-    aabb_size_b = geoms_init_AABB[i_gb, 7] - geoms_init_AABB[i_gb, 0]
-    tolerance_abs = 0.5 * _mc_tolerance * ti.min(aabb_size_a.norm(), aabb_size_b.norm())
-    return tolerance_abs
-
 
 @ti.func
 def _func_geom_overlap_ratio(i_ga, i_gb, i_b):
@@ -351,120 +339,9 @@ def _func_geom_overlap_ratio(i_ga, i_gb, i_b):
     # return overlap_ratio
 
 
-@ti.func
-def _func_rotate_frame(
-    i_ga, 
-    contact_pos, 
-    qrot, 
-    i_b,
-    geoms_state_pos: ti.types.ndarray(),
-    geoms_state_quat: ti.types.ndarray(),
-):
-    geoms_state_quat[i_ga, i_b] = gu.ti_transform_quat_by_quat(
-        geoms_state_quat[i_ga, i_b], qrot
-    )
-
-    rel = contact_pos - geoms_state_pos[i_ga, i_b]
-    vec = gu.ti_transform_by_quat(rel, qrot)
-    vec = vec - rel
-    geoms_state_pos[i_ga, i_b] = geoms_state_pos[i_ga, i_b] - vec
-
-
-
-
-@ti.func
-def _func_add_contact(
-    i_ga,
-    i_gb,
-    normal,
-    contact_pos,
-    penetration,
-    i_b,
-    n_contacts: ti.types.ndarray(),
-    contact_data_geom_a: ti.types.ndarray(),
-    contact_data_geom_b: ti.types.ndarray(),
-    contact_data_normal: ti.types.ndarray(),
-    contact_data_pos: ti.types.ndarray(),
-    contact_data_penetration: ti.types.ndarray(),
-    contact_data_friction: ti.types.ndarray(),
-    contact_data_sol_params: ti.types.ndarray(),
-    contact_data_link_a: ti.types.ndarray(),
-    contact_data_link_b: ti.types.ndarray(),
-    geoms_info_friction: ti.types.ndarray(),
-    geoms_state_friction_ratio: ti.types.ndarray(),
-    geoms_info_sol_params: ti.types.ndarray(),
-    geoms_info_link_idx: ti.types.ndarray(),
-):
-
-    i_col = n_contacts[i_b]
-
-    if i_col == _max_contact_pairs:
-        print(
-            f"{colors.YELLOW}[Genesis] [00:00:00] [WARNING] Ignoring contact pair to avoid exceeding max "
-            f"({_max_contact_pairs}). Please increase the value of RigidSolver's option "
-            f"'max_collision_pairs'.{formats.RESET}"
-        )
-    else:
-        friction_a = geoms_info_friction[i_ga] * geoms_state_friction_ratio[i_ga, i_b]
-        friction_b = geoms_info_friction[i_gb] * geoms_state_friction_ratio[i_gb, i_b]
-
-        # b to a
-        contact_data_geom_a[i_col, i_b] = i_ga
-        contact_data_geom_b[i_col, i_b] = i_gb
-        contact_data_normal[i_col, i_b] = normal
-        contact_data_pos[i_col, i_b] = contact_pos
-        contact_data_penetration[i_col, i_b] = penetration
-        contact_data_friction[i_col, i_b] = ti.max(ti.max(friction_a, friction_b), 1e-2)
-        contact_data_sol_params[i_col, i_b] = 0.5 * (geoms_info_sol_params[i_ga] + geoms_info_sol_params[i_gb])
-        contact_data_link_a[i_col, i_b] = geoms_info_link_idx[i_ga]
-        contact_data_link_b[i_col, i_b] = geoms_info_link_idx[i_gb]
-
-        n_contacts[i_b] = i_col + 1
-
-
-@ti.func
-def _func_contact_orthogonals(
-    i_ga,
-    i_gb,
-    normal,
-    i_b,
-    geoms_init_AABB: ti.types.ndarray(),
-    geoms_info_link_idx: ti.types.ndarray(),
-    links_state_i_quat: ti.types.ndarray(),
-):
-    # The reference geometry is the one that will have the largest impact on the position of
-    # the contact point. Basically, the smallest one between the two, which can be approximated
-    # by the volume of their respective bounding box.
-    size_ga = geoms_init_AABB[i_ga, 7]
-    volume_ga = size_ga[0] * size_ga[1] * size_ga[2]
-    size_gb = geoms_init_AABB[i_gb, 7]
-    volume_gb = size_gb[0] * size_gb[1] * size_gb[2]
-    i_g = i_ga if volume_ga < volume_gb else i_gb
-
-    # Compute orthogonal basis mixing principal inertia axes of geometry with contact normal
-    i_l = geoms_info_link_idx[i_g]
-    rot = gu.ti_quat_to_R(links_state_i_quat[i_l, i_b])
-    axis_idx = gs.ti_int(0)
-    axis_angle_max = gs.ti_float(0.0)
-    for i in ti.static(range(3)):
-        axis_angle = ti.abs(rot[0, i] * normal[0] + rot[1, i] * normal[1] + rot[2, i] * normal[2])
-        if axis_angle > axis_angle_max:
-            axis_angle_max = axis_angle
-            axis_idx = i
-    axis_idx = (axis_idx + 1) % 3
-    axis_0 = ti.Vector([rot[0, axis_idx], rot[1, axis_idx], rot[2, axis_idx]], dt=gs.ti_float)
-    axis_0 -= normal.dot(axis_0) * normal
-    axis_1 = normal.cross(axis_0)
-
-    return axis_0, axis_1
-
-
-
 
 def make_kernel_narrow_phase(is_ndarray: bool, is_serial: bool = False):
     VT = vec_types(is_ndarray)
-
-
 
     CCD_EPS = 1e-9
     CCD_TOLERANCE = 1e-6
@@ -472,23 +349,138 @@ def make_kernel_narrow_phase(is_ndarray: bool, is_serial: bool = False):
     CCD_ITERATIONS = 50
 
 
+
+    @ti.func
+    def _func_rotate_frame(
+        i_ga, 
+        contact_pos, 
+        qrot, 
+        i_b,
+        geoms_state_pos: VT.V3,
+        geoms_state_quat: VT.V4,
+    ):
+        geoms_state_quat[i_ga, i_b] = gu.ti_transform_quat_by_quat(
+            geoms_state_quat[i_ga, i_b], qrot
+        )
+
+        rel = contact_pos - geoms_state_pos[i_ga, i_b]
+        vec = gu.ti_transform_by_quat(rel, qrot)
+        vec = vec - rel
+        geoms_state_pos[i_ga, i_b] = geoms_state_pos[i_ga, i_b] - vec
+
+
+
+
+    @ti.func
+    def _func_add_contact(
+        i_ga,
+        i_gb,
+        normal,
+        contact_pos,
+        penetration,
+        i_b,
+        n_contacts: VT.I,
+        contact_data_geom_a: VT.I,
+        contact_data_geom_b: VT.I,
+        contact_data_normal: VT.V3,
+        contact_data_pos: VT.V3,
+        contact_data_penetration: VT.F,
+        contact_data_friction: VT.F,
+        contact_data_sol_params: VT.V7,
+        contact_data_link_a: VT.I,
+        contact_data_link_b: VT.I,
+        geoms_info_friction: VT.F,
+        geoms_state_friction_ratio: VT.F,
+        geoms_info_sol_params: VT.V7,
+        geoms_info_link_idx: VT.I,
+    ):
+
+        i_col = n_contacts[i_b]
+
+        if i_col == _max_contact_pairs:
+            print(
+                f"{colors.YELLOW}[Genesis] [00:00:00] [WARNING] Ignoring contact pair to avoid exceeding max "
+                f"({_max_contact_pairs}). Please increase the value of RigidSolver's option "
+                f"'max_collision_pairs'.{formats.RESET}"
+            )
+        else:
+            friction_a = geoms_info_friction[i_ga] * geoms_state_friction_ratio[i_ga, i_b]
+            friction_b = geoms_info_friction[i_gb] * geoms_state_friction_ratio[i_gb, i_b]
+
+            # b to a
+            contact_data_geom_a[i_col, i_b] = i_ga
+            contact_data_geom_b[i_col, i_b] = i_gb
+            contact_data_normal[i_col, i_b] = normal
+            contact_data_pos[i_col, i_b] = contact_pos
+            contact_data_penetration[i_col, i_b] = penetration
+            contact_data_friction[i_col, i_b] = ti.max(ti.max(friction_a, friction_b), 1e-2)
+            contact_data_sol_params[i_col, i_b] = 0.5 * (geoms_info_sol_params[i_ga] + geoms_info_sol_params[i_gb])
+            contact_data_link_a[i_col, i_b] = geoms_info_link_idx[i_ga]
+            contact_data_link_b[i_col, i_b] = geoms_info_link_idx[i_gb]
+
+            n_contacts[i_b] = i_col + 1
+
+
+    @ti.func
+    def _func_contact_orthogonals(
+        i_ga,
+        i_gb,
+        normal,
+        i_b,
+        geoms_init_AABB: VT.V3,
+        geoms_info_link_idx: VT.I,
+        links_state_i_quat: VT.V4,
+    ):
+        # The reference geometry is the one that will have the largest impact on the position of
+        # the contact point. Basically, the smallest one between the two, which can be approximated
+        # by the volume of their respective bounding box.
+        size_ga = geoms_init_AABB[i_ga, 7]
+        volume_ga = size_ga[0] * size_ga[1] * size_ga[2]
+        size_gb = geoms_init_AABB[i_gb, 7]
+        volume_gb = size_gb[0] * size_gb[1] * size_gb[2]
+        i_g = i_ga if volume_ga < volume_gb else i_gb
+
+        # Compute orthogonal basis mixing principal inertia axes of geometry with contact normal
+        i_l = geoms_info_link_idx[i_g]
+        rot = gu.ti_quat_to_R(links_state_i_quat[i_l, i_b])
+        axis_idx = gs.ti_int(0)
+        axis_angle_max = gs.ti_float(0.0)
+        for i in ti.static(range(3)):
+            axis_angle = ti.abs(rot[0, i] * normal[0] + rot[1, i] * normal[1] + rot[2, i] * normal[2])
+            if axis_angle > axis_angle_max:
+                axis_angle_max = axis_angle
+                axis_idx = i
+        axis_idx = (axis_idx + 1) % 3
+        axis_0 = ti.Vector([rot[0, axis_idx], rot[1, axis_idx], rot[2, axis_idx]], dt=gs.ti_float)
+        axis_0 -= normal.dot(axis_0) * normal
+        axis_1 = normal.cross(axis_0)
+
+        return axis_0, axis_1
+
+
+
     @ti.func
     def _func_support_world(
         d: gs.ti_vec3, 
         i_g: ti.i32, 
         i_b: ti.i32,
-        geoms_state_pos: ti.types.ndarray(dtype=gs.ti_vec3),
-        geoms_state_quat: ti.types.ndarray(dtype=gs.ti_vec4),
-        support_cell_start: ti.types.ndarray(dtype=gs.ti_int),
-        support_vid: ti.types.ndarray(dtype=gs.ti_int),
-        support_v: ti.types.ndarray(dtype=gs.ti_vec3),
+        geoms_state_pos: VT.V3,
+        geoms_state_quat: VT.V4,
+        support_cell_start: VT.I,
+        support_vid: VT.I,
+        support_v: VT.V3,
     ):
         """
         support position for a world direction
         """
 
         d_mesh = gu.ti_transform_by_quat(d, gu.ti_inv_quat(geoms_state_quat[i_g, i_b]))
-        v, vid = _func_support_mesh(d_mesh, i_g, support_cell_start, support_vid, support_v)
+        v, vid = _func_support_mesh(
+            d_mesh=d_mesh, 
+            i_g=i_g, 
+            support_cell_start=support_cell_start, 
+            support_vid=support_vid, 
+            support_v=support_v)
         v_ = gu.ti_transform_by_trans_quat(v, geoms_state_pos[i_g, i_b], geoms_state_quat[i_g, i_b])
         return v_, vid
 
@@ -497,9 +489,9 @@ def make_kernel_narrow_phase(is_ndarray: bool, is_serial: bool = False):
     def _func_support_mesh(
         d_mesh: gs.ti_vec3, 
         i_g: ti.i32, 
-        support_cell_start: ti.types.ndarray(dtype=gs.ti_int),
-        support_vid: ti.types.ndarray(dtype=gs.ti_int),
-        support_v: ti.types.ndarray(dtype=gs.ti_vec3),
+        support_cell_start: VT.I,
+        support_vid: VT.I,
+        support_v: VT.V3,
     ):
         """
         support point at mesh frame coordinate.
@@ -619,14 +611,14 @@ def make_kernel_narrow_phase(is_ndarray: bool, is_serial: bool = False):
         i_ga: ti.i32, 
         i_gb: ti.i32, 
         i_b: ti.i32,
-        geoms_info_type: ti.types.ndarray(dtype=gs.ti_int),
-        geoms_info_data: ti.types.ndarray(dtype=gs.ti_float),
-        geoms_info_vert_start: ti.types.ndarray(dtype=gs.ti_int),
-        geoms_state_pos: ti.types.ndarray(dtype=gs.ti_vec3),
-        geoms_state_quat: ti.types.ndarray(dtype=gs.ti_vec4),
-        support_cell_start: ti.types.ndarray(dtype=gs.ti_int),
-        support_vid: ti.types.ndarray(dtype=gs.ti_int),
-        support_v: ti.types.ndarray(dtype=gs.ti_vec3),
+        geoms_info_type: VT.I,
+        geoms_info_data: VT.F,
+        geoms_info_vert_start: VT.I,
+        geoms_state_pos: VT.V3,
+        geoms_state_quat: VT.V4,
+        support_cell_start: VT.I,
+        support_vid: VT.I,
+        support_v: VT.V3,
     ):
         v1 = support_driver(direction, i_ga, i_b, geoms_info_type, geoms_info_data, geoms_info_vert_start, geoms_state_pos, geoms_state_quat, support_cell_start, support_vid, support_v)
         v2 = support_driver(-direction, i_gb, i_b, geoms_info_type, geoms_info_data, geoms_info_vert_start, geoms_state_pos, geoms_state_quat, support_cell_start, support_vid, support_v)
@@ -641,9 +633,9 @@ def make_kernel_narrow_phase(is_ndarray: bool, is_serial: bool = False):
         i_ga: ti.i32, 
         i_gb: ti.i32, 
         i_b: ti.i32, 
-        simplex_support_v1: ti.types.ndarray(dtype=gs.ti_vec3), 
-        simplex_support_v2: ti.types.ndarray(dtype=gs.ti_vec3), 
-        simplex_support_v: ti.types.ndarray(dtype=gs.ti_vec3)
+        simplex_support_v1: VT.V3, 
+        simplex_support_v2: VT.V3, 
+        simplex_support_v: VT.V3
         ):
         simplex_support_v1[i_ga, i_gb, i, i_b], simplex_support_v1[i_ga, i_gb, j, i_b] = (
             simplex_support_v1[i_ga, i_gb, j, i_b],
@@ -665,22 +657,22 @@ def make_kernel_narrow_phase(is_ndarray: bool, is_serial: bool = False):
         i_gb: ti.i32, 
         i_b: ti.i32, 
         normal_ws: gs.ti_vec3, 
-        simplex_size: ti.types.ndarray(dtype=gs.ti_int), 
-        simplex_support_v1: ti.types.ndarray(dtype=gs.ti_vec3), 
-        simplex_support_v2: ti.types.ndarray(dtype=gs.ti_vec3), 
-        simplex_support_v: ti.types.ndarray(dtype=gs.ti_vec3), 
-        geoms_init_AABB: ti.types.ndarray(dtype=gs.ti_vec3),
-        geom_state_pos: ti.types.ndarray(dtype=gs.ti_vec3),
-        geom_state_quat: ti.types.ndarray(dtype=gs.ti_vec4),
-        geoms_info_center: ti.types.ndarray(dtype=gs.ti_vec3),
-        geoms_info_type: ti.types.ndarray(dtype=gs.ti_int),
-        geoms_info_data: ti.types.ndarray(dtype=gs.ti_float),
-        geoms_info_vert_start: ti.types.ndarray(dtype=gs.ti_int),
-        geoms_state_pos: ti.types.ndarray(dtype=gs.ti_vec3),
-        geoms_state_quat: ti.types.ndarray(dtype=gs.ti_vec4),
-        support_cell_start: ti.types.ndarray(dtype=gs.ti_int),
-        support_vid: ti.types.ndarray(dtype=gs.ti_int),
-        support_v: ti.types.ndarray(dtype=gs.ti_vec3),
+        simplex_size: VT.I, 
+        simplex_support_v1: VT.V3, 
+        simplex_support_v2: VT.V3, 
+        simplex_support_v: VT.V3, 
+        geoms_init_AABB: VT.V3,
+        geom_state_pos: VT.V3,
+        geom_state_quat: VT.V4,
+        geoms_info_center: VT.V3,
+        geoms_info_type: VT.I,
+        geoms_info_data: VT.F,
+        geoms_info_vert_start: VT.I,
+        geoms_state_pos: VT.V3,
+        geoms_state_quat: VT.V4,
+        support_cell_start: VT.I,
+        support_vid: VT.I,
+        support_v: VT.V3,
     ):
         ret = 0
         simplex_size[i_ga, i_gb, i_b] = 0
@@ -813,9 +805,6 @@ def make_kernel_narrow_phase(is_ndarray: bool, is_serial: bool = False):
                             simplex_support_v[i_ga, i_gb, 3, i_b] = v
                             simplex_size[i_ga, i_gb, i_b] = 4
 
-        if i_ga == 19 and i_gb == 12:
-            for i in range(4):
-                print("simplex_support[i_ga, i_b].v ndarray", i, simplex_support_v[i_ga, i_gb, i, i_b])
         return ret
 
     @ti.func
@@ -823,8 +812,8 @@ def make_kernel_narrow_phase(is_ndarray: bool, is_serial: bool = False):
         direction: gs.ti_vec3, 
         i_g: ti.i32, 
         i_b: ti.i32,
-        geoms_state_pos: ti.types.ndarray(dtype=gs.ti_vec3),
-        geoms_info_data: ti.types.ndarray(dtype=gs.ti_float),
+        geoms_state_pos: VT.V3,
+        geoms_info_data: VT.F,
     ):
         sphere_center = geoms_state_pos[i_g, i_b]
         sphere_radius = geoms_info_data[i_g, 0]
@@ -835,9 +824,9 @@ def make_kernel_narrow_phase(is_ndarray: bool, is_serial: bool = False):
         direction: gs.ti_vec3, 
         i_g: ti.i32, 
         i_b: ti.i32,
-        geoms_state_pos: ti.types.ndarray(dtype=gs.ti_vec3),
-        geoms_state_quat: ti.types.ndarray(dtype=gs.ti_vec4),
-        geoms_info_data: ti.types.ndarray(dtype=gs.ti_float),
+        geoms_state_pos: VT.V3,
+        geoms_state_quat: VT.V4,
+        geoms_info_data: VT.F,
     ):
         ellipsoid_center = geoms_state_pos[i_g, i_b]
         ellipsoid_scaled_axis = ti.Vector(
@@ -857,9 +846,9 @@ def make_kernel_narrow_phase(is_ndarray: bool, is_serial: bool = False):
         direction: gs.ti_vec3, 
         i_g: ti.i32, 
         i_b: ti.i32,
-        geoms_state_pos: ti.types.ndarray(dtype=gs.ti_vec3),
-        geoms_state_quat: ti.types.ndarray(dtype=gs.ti_vec4),
-        geoms_info_data: ti.types.ndarray(dtype=gs.ti_float),
+        geoms_state_pos: VT.V3,
+        geoms_state_quat: VT.V4,
+        geoms_info_data: VT.F,
     ):
         capule_center = geoms_state_pos[i_g, i_b]
         capsule_axis = gu.ti_transform_by_quat(ti.Vector([0.0, 0.0, 1.0], dt=gs.ti_float), geoms_state_quat[i_g, i_b])
@@ -874,7 +863,7 @@ def make_kernel_narrow_phase(is_ndarray: bool, is_serial: bool = False):
         direction: gs.ti_vec3, 
         i_g: ti.i32, 
         i_b: ti.i32,
-        collider_prism: ti.types.ndarray(dtype=gs.ti_vec3),
+        collider_prism: VT.V3,
     ):
         istart = 3
         if direction[2] < 0:
@@ -895,10 +884,10 @@ def make_kernel_narrow_phase(is_ndarray: bool, is_serial: bool = False):
         direction: gs.ti_vec3, 
         i_g: ti.i32, 
         i_b: ti.i32,
-        geoms_info_data: ti.types.ndarray(dtype=gs.ti_float),
-        geoms_info_vert_start: ti.types.ndarray(dtype=gs.ti_int),
-        geoms_state_pos: ti.types.ndarray(dtype=gs.ti_vec3),
-        geoms_state_quat: ti.types.ndarray(dtype=gs.ti_vec4),
+        geoms_info_data: VT.F,
+        geoms_info_vert_start: VT.I,
+        geoms_state_pos: VT.V3,
+        geoms_state_quat: VT.V4,
     ):
         d_box = gu.ti_transform_by_quat(direction, gu.ti_inv_quat(geoms_state_quat[i_g, i_b]))
 
@@ -921,14 +910,14 @@ def make_kernel_narrow_phase(is_ndarray: bool, is_serial: bool = False):
         direction: gs.ti_vec3, 
         i_g: ti.i32, 
         i_b: ti.i32,
-        geoms_info_type: ti.types.ndarray(dtype=gs.ti_int),
-        geoms_info_data: ti.types.ndarray(dtype=gs.ti_float),
-        geoms_info_vert_start: ti.types.ndarray(dtype=gs.ti_int),
-        geoms_state_pos: ti.types.ndarray(dtype=gs.ti_vec3),
-        geoms_state_quat: ti.types.ndarray(dtype=gs.ti_vec4),
-        support_cell_start: ti.types.ndarray(dtype=gs.ti_int),
-        support_vid: ti.types.ndarray(dtype=gs.ti_int),
-        support_v: ti.types.ndarray(dtype=gs.ti_vec3),
+        geoms_info_type: VT.I,
+        geoms_info_data: VT.F,
+        geoms_info_vert_start: VT.I,
+        geoms_state_pos: VT.V3,
+        geoms_state_quat: VT.V4,
+        support_cell_start: VT.I,
+        support_vid: VT.I,
+        support_v: VT.V3,
     ):
         v = ti.Vector.zero(gs.ti_float, 3)
         geom_type = geoms_info_type[i_g]
@@ -946,7 +935,13 @@ def make_kernel_narrow_phase(is_ndarray: bool, is_serial: bool = False):
         #         v, _ = support_prism(direction, i_g, i_b)
         else:
             v, _ = _func_support_world(
-                direction, i_g, i_b, geoms_state_pos, geoms_state_quat, support_cell_start, support_vid, support_v)
+                d=direction, 
+                i_g=i_g, 
+                i_b=i_b, 
+                geoms_state_pos=geoms_state_pos, 
+                geoms_state_quat=geoms_state_quat, 
+                support_cell_start=support_cell_start, 
+                support_vid=support_vid, support_v=support_v)
         return v
 
 
@@ -955,9 +950,9 @@ def make_kernel_narrow_phase(is_ndarray: bool, is_serial: bool = False):
         i_ga: ti.i32, 
         i_gb: ti.i32, 
         i_b: ti.i32, 
-        simplex_support_v1: ti.types.ndarray(dtype=gs.ti_vec3),
-        simplex_support_v2: ti.types.ndarray(dtype=gs.ti_vec3),
-        simplex_support_v: ti.types.ndarray(dtype=gs.ti_vec3)
+        simplex_support_v1: VT.V3,
+        simplex_support_v2: VT.V3,
+        simplex_support_v: VT.V3
     ):
         is_col = True
         penetration = gs.ti_float(0.0)
@@ -970,9 +965,9 @@ def make_kernel_narrow_phase(is_ndarray: bool, is_serial: bool = False):
         i_ga: ti.i32, 
         i_gb: ti.i32, 
         i_b: ti.i32, 
-        simplex_support_v1: ti.types.ndarray(dtype=gs.ti_vec3),
-        simplex_support_v2: ti.types.ndarray(dtype=gs.ti_vec3),
-        simplex_support_v: ti.types.ndarray(dtype=gs.ti_vec3)
+        simplex_support_v1: VT.V3,
+        simplex_support_v2: VT.V3,
+        simplex_support_v: VT.V3
     ):
         is_col = True
         penetration = simplex_support_v[i_ga, i_gb, 1, i_b].norm()
@@ -986,7 +981,7 @@ def make_kernel_narrow_phase(is_ndarray: bool, is_serial: bool = False):
         i_ga: ti.i32, 
         i_gb: ti.i32, 
         i_b: ti.i32, 
-        simplex_support_v: ti.types.ndarray(dtype=gs.ti_vec3)
+        simplex_support_v: VT.V3
     ):
         v2v1 = simplex_support_v[i_ga, i_gb, 2, i_b] - simplex_support_v[i_ga, i_gb, 1, i_b]
         v3v1 = simplex_support_v[i_ga, i_gb, 3, i_b] - simplex_support_v[i_ga, i_gb, 1, i_b]
@@ -999,7 +994,7 @@ def make_kernel_narrow_phase(is_ndarray: bool, is_serial: bool = False):
         i_ga: ti.i32, 
         i_gb: ti.i32, 
         i_b: ti.i32, 
-        simplex_support_v: ti.types.ndarray(dtype=gs.ti_vec3)
+        simplex_support_v: VT.V3
     ):
         dot = simplex_support_v[i_ga, i_gb, 1, i_b].dot(direction)
         return dot > -CCD_EPS
@@ -1018,7 +1013,7 @@ def make_kernel_narrow_phase(is_ndarray: bool, is_serial: bool = False):
         i_ga: ti.i32, 
         i_gb: ti.i32, 
         i_b: ti.i32, 
-        simplex_support_v: ti.types.ndarray(dtype=gs.ti_vec3)
+        simplex_support_v: VT.V3
     ):
         dv1 = simplex_support_v[i_ga, i_gb, 1, i_b].dot(direction)
         dv2 = simplex_support_v[i_ga, i_gb, 2, i_b].dot(direction)
@@ -1035,9 +1030,9 @@ def make_kernel_narrow_phase(is_ndarray: bool, is_serial: bool = False):
         i_ga: ti.i32, 
         i_gb: ti.i32, 
         i_b: ti.i32, 
-        simplex_support_v: ti.types.ndarray(dtype=gs.ti_vec3),
-        simplex_support_v1: ti.types.ndarray(dtype=gs.ti_vec3),
-        simplex_support_v2: ti.types.ndarray(dtype=gs.ti_vec3),
+        simplex_support_v: VT.V3,
+        simplex_support_v1: VT.V3,
+        simplex_support_v2: VT.V3,
     ):
         v4v0 = v.cross(simplex_support_v[i_ga, i_gb, 0, i_b])
         dot = simplex_support_v[i_ga, i_gb, 1, i_b].dot(v4v0)
@@ -1071,39 +1066,27 @@ def make_kernel_narrow_phase(is_ndarray: bool, is_serial: bool = False):
         i_ga: ti.i32, 
         i_gb: ti.i32, 
         i_b: ti.i32, 
-        simplex_support_v: ti.types.ndarray(dtype=gs.ti_vec3),
-        simplex_support_v1: ti.types.ndarray(dtype=gs.ti_vec3),
-        simplex_support_v2: ti.types.ndarray(dtype=gs.ti_vec3),
-        geoms_info_type: ti.types.ndarray(dtype=gs.ti_int),
-        geoms_info_data: ti.types.ndarray(dtype=gs.ti_float),
-        geoms_info_vert_start: ti.types.ndarray(dtype=gs.ti_int),
-        geoms_state_pos: ti.types.ndarray(dtype=gs.ti_vec3),
-        geoms_state_quat: ti.types.ndarray(dtype=gs.ti_vec4),
-        support_cell_start: ti.types.ndarray(dtype=gs.ti_int),
-        support_vid: ti.types.ndarray(dtype=gs.ti_int),
-        support_v: ti.types.ndarray(dtype=gs.ti_vec3),
+        simplex_support_v1: VT.V3,
+        simplex_support_v2: VT.V3,
+        simplex_support_v: VT.V3,
+        geoms_info_type: VT.I,
+        geoms_info_data: VT.F,
+        geoms_info_vert_start: VT.I,
+        geoms_state_pos: VT.V3,
+        geoms_state_quat: VT.V4,
+        support_cell_start: VT.I,
+        support_vid: VT.I,
+        support_v: VT.V3,
         
     ):
         ret = 1
         while True:
             direction = mpr_portal_dir(i_ga, i_gb, i_b, simplex_support_v)
             
-            if i_ga == 19 and i_gb == 12 and i_b == 0:
-                print("------------------- ndarray")
-                for i in range(4):
-                    print(simplex_support_v[i_ga, i_gb, i, i_b])
-                print("mpr_portal_encapsules_origin ndarray", direction, simplex_support_v[i_ga, i_gb, 1, i_b], mpr_portal_encapsules_origin(direction, i_ga, i_gb, i_b, simplex_support_v))
             if mpr_portal_encapsules_origin(direction, i_ga, i_gb, i_b, simplex_support_v):
                 ret = 0
                 break
-            # geoms_info_type: ti.types.ndarray(dtype=gs.ti_int),
-            # geoms_info_data: ti.types.ndarray(dtype=gs.ti_float),
-            # geoms_info_vert_start: ti.types.ndarray(dtype=gs.ti_int),
-            # geoms_state_pos: ti.types.ndarray(dtype=gs.ti_vec3),
-            # geoms_state_quat: ti.types.ndarray(dtype=gs.ti_vec4),
-            # support_cell_start: ti.types.ndarray(dtype=gs.ti_int),
-            # support_vid: ti.types.ndarray(dtype=gs.ti_int),
-            # support_v: ti.types.ndarray(dtype=gs.ti_vec3),
+
             v, v1, v2 = compute_support(
                 direction, 
                 i_ga, 
@@ -1118,11 +1101,6 @@ def make_kernel_narrow_phase(is_ndarray: bool, is_serial: bool = False):
                 support_vid,
                 support_v,
             )
-            if i_ga == 19 and i_gb == 12:
-                print("refine v ndarray", v)
-                print("refine v1 ndarray", v1)
-                print("refine v2 ndarray", v2)
-                print("refine direction ndarray", direction)
             if not mpr_portal_can_encapsule_origin(v, direction) or mpr_portal_reach_tolerance(
                 v, 
                 direction, 
@@ -1134,7 +1112,16 @@ def make_kernel_narrow_phase(is_ndarray: bool, is_serial: bool = False):
                 ret = -1
                 break
 
-            mpr_expand_portal(v, v1, v2, i_ga, i_gb, i_b, simplex_support_v, simplex_support_v1, simplex_support_v2)
+            mpr_expand_portal(
+                v=v, 
+                v1=v1, 
+                v2=v2, 
+                i_ga=i_ga, 
+                i_gb=i_gb, 
+                i_b=i_b, 
+                simplex_support_v=simplex_support_v, 
+                simplex_support_v1=simplex_support_v1, 
+                simplex_support_v2=simplex_support_v2)
         return ret
 
     @ti.func
@@ -1142,9 +1129,9 @@ def make_kernel_narrow_phase(is_ndarray: bool, is_serial: bool = False):
         i_ga: ti.i32, 
         i_gb: ti.i32, 
         i_b: ti.i32, 
-        simplex_support_v: ti.types.ndarray(dtype=gs.ti_vec3),
-        simplex_support_v1: ti.types.ndarray(dtype=gs.ti_vec3),
-        simplex_support_v2: ti.types.ndarray(dtype=gs.ti_vec3),
+        simplex_support_v: VT.V3,
+        simplex_support_v1: VT.V3,
+        simplex_support_v2: VT.V3,
     ):
         b = ti.Vector([0.0, 0.0, 0.0, 0.0], dt=gs.ti_float)
 
@@ -1181,17 +1168,17 @@ def make_kernel_narrow_phase(is_ndarray: bool, is_serial: bool = False):
         i_ga: ti.i32, 
         i_gb: ti.i32, 
         i_b: ti.i32, 
-        simplex_support_v: ti.types.ndarray(dtype=gs.ti_vec3),
-        simplex_support_v1: ti.types.ndarray(dtype=gs.ti_vec3),
-        simplex_support_v2: ti.types.ndarray(dtype=gs.ti_vec3),
-        geoms_info_type: ti.types.ndarray(dtype=gs.ti_int),
-        geoms_info_data: ti.types.ndarray(dtype=gs.ti_float),
-        geoms_info_vert_start: ti.types.ndarray(dtype=gs.ti_int),
-        geoms_state_pos: ti.types.ndarray(dtype=gs.ti_vec3),
-        geoms_state_quat: ti.types.ndarray(dtype=gs.ti_vec4),
-        support_cell_start: ti.types.ndarray(dtype=gs.ti_int),
-        support_vid: ti.types.ndarray(dtype=gs.ti_int),
-        support_v: ti.types.ndarray(dtype=gs.ti_vec3),
+        simplex_support_v: VT.V3,
+        simplex_support_v1: VT.V3,
+        simplex_support_v2: VT.V3,
+        geoms_info_type: VT.I,
+        geoms_info_data: VT.F,
+        geoms_info_vert_start: VT.I,
+        geoms_state_pos: VT.V3,
+        geoms_state_quat: VT.V4,
+        support_cell_start: VT.I,
+        support_vid: VT.I,
+        support_v: VT.V3,
     ):
         iterations = 0
 
@@ -1202,7 +1189,21 @@ def make_kernel_narrow_phase(is_ndarray: bool, is_serial: bool = False):
 
         while True:
             direction = mpr_portal_dir(i_ga, i_gb, i_b, simplex_support_v)
-            v, v1, v2 = compute_support(direction, i_ga, i_gb, i_b, geoms_info_type, geoms_info_data, geoms_info_vert_start, geoms_state_pos, geoms_state_quat, support_cell_start, support_vid, support_v)
+            v, v1, v2 = compute_support(
+                direction=direction, 
+                i_ga=i_ga, 
+                i_gb=i_gb, 
+                i_b=i_b, 
+                geoms_info_type=geoms_info_type, 
+                geoms_info_data=geoms_info_data, 
+                geoms_info_vert_start=geoms_info_vert_start, 
+                geoms_state_pos=geoms_state_pos, 
+                geoms_state_quat=geoms_state_quat, 
+                support_cell_start=support_cell_start, 
+                support_vid=support_vid, 
+                support_v=support_v)
+            
+
             if mpr_portal_reach_tolerance(v, direction, i_ga, i_gb, i_b, simplex_support_v) or iterations > CCD_ITERATIONS:
                 # The contact point is defined as the projection of the origin onto the portal, i.e. the closest point
                 # to the origin that lies inside the portal.
@@ -1248,15 +1249,15 @@ def make_kernel_narrow_phase(is_ndarray: bool, is_serial: bool = False):
                 break
 
             mpr_expand_portal(
-                v, 
-                v1, 
-                v2, 
-                i_ga, 
-                i_gb, 
-                i_b,
-                simplex_support_v,
-                simplex_support_v1,
-                simplex_support_v2
+                v=v, 
+                v1=v1, 
+                v2=v2, 
+                i_ga=i_ga, 
+                i_gb=i_gb, 
+                i_b=i_b,
+                simplex_support_v=simplex_support_v,
+                simplex_support_v1=simplex_support_v1,
+                simplex_support_v2=simplex_support_v2
             )
             iterations += 1
 
@@ -1268,46 +1269,46 @@ def make_kernel_narrow_phase(is_ndarray: bool, is_serial: bool = False):
         i_gb: ti.i32, 
         i_b: ti.i32, 
         normal_ws: gs.ti_vec3,
-        simplex_size: ti.types.ndarray(dtype=gs.ti_int),
-        simplex_support_v1: ti.types.ndarray(dtype=gs.ti_vec3),
-        simplex_support_v2: ti.types.ndarray(dtype=gs.ti_vec3),
-        simplex_support_v: ti.types.ndarray(dtype=gs.ti_vec3),
-        geoms_init_AABB: ti.types.ndarray(dtype=gs.ti_vec3),
-        geom_state_pos: ti.types.ndarray(dtype=gs.ti_vec3),
-        geom_state_quat: ti.types.ndarray(dtype=gs.ti_vec4),
-        geoms_info_center: ti.types.ndarray(dtype=gs.ti_vec3),
-        geoms_info_type: ti.types.ndarray(dtype=gs.ti_int),
-        geoms_info_data: ti.types.ndarray(dtype=gs.ti_float),
-        geoms_info_vert_start: ti.types.ndarray(dtype=gs.ti_int),
-        geoms_state_pos: ti.types.ndarray(dtype=gs.ti_vec3),
-        geoms_state_quat: ti.types.ndarray(dtype=gs.ti_vec4),
-        support_cell_start: ti.types.ndarray(dtype=gs.ti_int),
-        support_vid: ti.types.ndarray(dtype=gs.ti_int),
-        support_v: ti.types.ndarray(dtype=gs.ti_vec3),
+        simplex_size: VT.I,
+        simplex_support_v1: VT.V3,
+        simplex_support_v2: VT.V3,
+        simplex_support_v: VT.V3,
+        geoms_init_AABB: VT.V3,
+        geom_state_pos: VT.V3,
+        geom_state_quat: VT.V4,
+        geoms_info_center: VT.V3,
+        geoms_info_type: VT.I,
+        geoms_info_data: VT.F,
+        geoms_info_vert_start: VT.I,
+        geoms_state_pos: VT.V3,
+        geoms_state_quat: VT.V4,
+        support_cell_start: VT.I,
+        support_vid: VT.I,
+        support_v: VT.V3,
 
     ):
 
         res = mpr_discover_portal(
-            i_ga, 
-            i_gb, 
-            i_b, 
-            normal_ws,
-            simplex_size,
-            simplex_support_v1,
-            simplex_support_v2,
-            simplex_support_v,
-            geoms_init_AABB,
-            geom_state_pos,
-            geom_state_quat,
-            geoms_info_center,
-            geoms_info_type,
-            geoms_info_data,
-            geoms_info_vert_start,
-            geoms_state_pos,
-            geoms_state_quat,
-            support_cell_start,
-            support_vid,
-            support_v
+            i_ga=i_ga, 
+            i_gb=i_gb, 
+            i_b=i_b, 
+            normal_ws=normal_ws,
+            simplex_size=simplex_size,
+            simplex_support_v1=simplex_support_v1,
+            simplex_support_v2=simplex_support_v2,
+            simplex_support_v=simplex_support_v,
+            geoms_init_AABB=geoms_init_AABB,
+            geom_state_pos=geom_state_pos,
+            geom_state_quat=geom_state_quat,
+            geoms_info_center=geoms_info_center,
+            geoms_info_type=geoms_info_type,
+            geoms_info_data=geoms_info_data,
+            geoms_info_vert_start=geoms_info_vert_start,
+            geoms_state_pos=geoms_state_pos,
+            geoms_state_quat=geoms_state_quat,
+            support_cell_start=support_cell_start,
+            support_vid=support_vid,
+            support_v=support_v
         )
         is_col = False
         pos = gs.ti_vec3([0.0, 0.0, 0.0])
@@ -1316,58 +1317,70 @@ def make_kernel_narrow_phase(is_ndarray: bool, is_serial: bool = False):
 
         if res == 1:
             is_col, normal, penetration, pos = mpr_find_penetr_touch(
-                i_ga, 
-                i_gb, 
-                i_b,
-                simplex_support_v1,
-                simplex_support_v2,
-                simplex_support_v
+                i_ga=i_ga, 
+                i_gb=i_gb, 
+                i_b=i_b,
+                simplex_support_v1=simplex_support_v1,
+                simplex_support_v2=simplex_support_v2,
+                simplex_support_v=simplex_support_v
             )
         elif res == 2:
             is_col, normal, penetration, pos = mpr_find_penetr_segment(
-                i_ga, 
-                i_gb, 
-                i_b,
-                simplex_support_v1,
-                simplex_support_v2,
-                simplex_support_v
+                i_ga=i_ga, 
+                i_gb=i_gb, 
+                i_b=i_b,
+                simplex_support_v1=simplex_support_v1,
+                simplex_support_v2=simplex_support_v2,
+                simplex_support_v=simplex_support_v
             )
         elif res == 0:
             res = mpr_refine_portal(
-                i_ga, i_gb, i_b, 
-                simplex_support_v1,
-                simplex_support_v2,
-                simplex_support_v,
-                geoms_info_type,
-                geoms_info_data,
-                geoms_info_vert_start,
-                geoms_state_pos,
-                geoms_state_quat,
-                support_cell_start,
-                support_vid,
-                support_v
+                i_ga=i_ga, 
+                i_gb=i_gb, 
+                i_b=i_b, 
+                simplex_support_v1=simplex_support_v1,
+                simplex_support_v2=simplex_support_v2,
+                simplex_support_v=simplex_support_v,
+                geoms_info_type=geoms_info_type,
+                geoms_info_data=geoms_info_data,
+                geoms_info_vert_start=geoms_info_vert_start,
+                geoms_state_pos=geoms_state_pos,
+                geoms_state_quat=geoms_state_quat,
+                support_cell_start=support_cell_start,
+                support_vid=support_vid,
+                support_v=support_v
             )
-            if i_ga == 19 and i_gb == 12:
-                print("res ndarray", res)
             if res >= 0:
                 is_col, normal, penetration, pos = mpr_find_penetration(
-                    i_ga, 
-                    i_gb, 
-                    i_b,
-                    simplex_support_v1,
-                    simplex_support_v2,
-                    simplex_support_v,
-                    geoms_info_type,
-                    geoms_info_data,
-                    geoms_info_vert_start,
-                    geoms_state_pos,
-                    geoms_state_quat,
-                    support_cell_start,
-                    support_vid,
-                    support_v
+                    i_ga=i_ga, 
+                    i_gb=i_gb, 
+                    i_b=i_b,
+                    simplex_support_v1=simplex_support_v1,
+                    simplex_support_v2=simplex_support_v2,
+                    simplex_support_v=simplex_support_v,
+                    geoms_info_type=geoms_info_type,
+                    geoms_info_data=geoms_info_data,
+                    geoms_info_vert_start=geoms_info_vert_start,
+                    geoms_state_pos=geoms_state_pos,
+                    geoms_state_quat=geoms_state_quat,
+                    support_cell_start=support_cell_start,
+                    support_vid=support_vid,
+                    support_v=support_v
                 )
 
         return is_col, normal, penetration, pos
+
+    @ti.func
+    def _func_compute_tolerance(
+        i_ga: gs.ti_int,
+        i_gb: gs.ti_int,
+        i_b: gs.ti_int,
+        geoms_init_AABB: VT.V3,
+    ):
+        aabb_size_a = geoms_init_AABB[i_ga, 7] - geoms_init_AABB[i_ga, 0]
+        aabb_size_b = geoms_init_AABB[i_gb, 7] - geoms_init_AABB[i_gb, 0]
+        tolerance_abs = 0.5 * _mc_tolerance * ti.min(aabb_size_a.norm(), aabb_size_b.norm())
+        return tolerance_abs
 
 
     ## only one mpr
@@ -1376,36 +1389,36 @@ def make_kernel_narrow_phase(is_ndarray: bool, is_serial: bool = False):
         i_ga: gs.ti_int,
         i_gb: gs.ti_int,
         i_b: gs.ti_int,
-        geoms_info_type: ti.types.ndarray(),
-        geoms_info_link_idx: ti.types.ndarray(),
-        geoms_info_data: ti.types.ndarray(),
-        geoms_state_pos: ti.types.ndarray(),
-        geoms_state_quat: ti.types.ndarray(),
-        contact_cache_normal: ti.types.ndarray(),
-        contact_data_pos: ti.types.ndarray(),
-        n_contacts: ti.types.ndarray(),
-        contact_data_geom_a: ti.types.ndarray(),
-        contact_data_geom_b: ti.types.ndarray(),
-        contact_data_normal: ti.types.ndarray(),
-        contact_data_penetration: ti.types.ndarray(),
-        contact_data_friction: ti.types.ndarray(),
-        contact_data_sol_params: ti.types.ndarray(),
-        contact_data_link_a: ti.types.ndarray(),
-        contact_data_link_b: ti.types.ndarray(),
-        geoms_info_friction: ti.types.ndarray(),
-        geoms_state_friction_ratio: ti.types.ndarray(),
-        geoms_info_sol_params: ti.types.ndarray(),
-        geoms_info_vert_start: ti.types.ndarray(),
-        geoms_init_AABB: ti.types.ndarray(),
-        links_state_i_quat: ti.types.ndarray(),
-        simplex_size: ti.types.ndarray(),
-        simplex_support_v1: ti.types.ndarray(),
-        simplex_support_v2: ti.types.ndarray(),
-        simplex_support_v: ti.types.ndarray(),
-        support_cell_start: ti.types.ndarray(),
-        support_vid: ti.types.ndarray(),
-        support_v: ti.types.ndarray(),
-        geoms_info_center: ti.types.ndarray(),
+        geoms_info_type: VT.I,
+        geoms_info_link_idx: VT.I,
+        geoms_info_data: VT.F,
+        geoms_state_pos: VT.V3,
+        geoms_state_quat: VT.V4,
+        contact_cache_normal: VT.V3,
+        contact_data_pos: VT.V3,
+        n_contacts: VT.I,
+        contact_data_geom_a: VT.I,
+        contact_data_geom_b: VT.I,
+        contact_data_normal: VT.V3,
+        contact_data_penetration: VT.F,
+        contact_data_friction: VT.F,
+        contact_data_sol_params: VT.V7,
+        contact_data_link_a: VT.I,
+        contact_data_link_b: VT.I,
+        geoms_info_friction: VT.F,
+        geoms_state_friction_ratio: VT.F,
+        geoms_info_sol_params: VT.V7,
+        geoms_info_vert_start: VT.I,
+        geoms_init_AABB: VT.V3,
+        links_state_i_quat: VT.V4,
+        simplex_size: VT.I,
+        simplex_support_v1: VT.V3,
+        simplex_support_v2: VT.V3,
+        simplex_support_v: VT.V3,
+        support_cell_start: VT.I,
+        support_vid: VT.I,
+        support_v: VT.V3,
+        geoms_info_center: VT.V3,
     ):
         if geoms_info_type[i_ga] > geoms_info_type[i_gb]:
             i_gb, i_ga = i_ga, i_gb
@@ -1434,8 +1447,6 @@ def make_kernel_narrow_phase(is_ndarray: bool, is_serial: bool = False):
             # _func_plane_contact(i_ga, i_gb, multi_contact, i_b)
             pass
         else:
-            # if i_b == 0:
-            #     print("i_ga, i_gb, ndarray", i_ga, i_gb)
             is_col_0 = False
             penetration_0 = gs.ti_float(0.0)
             normal_0 = ti.Vector.zero(gs.ti_float, 3)
@@ -1543,8 +1554,28 @@ def make_kernel_narrow_phase(is_ndarray: bool, is_serial: bool = False):
                     is_col_0, normal_0, penetration_0, contact_pos_0 = is_col, normal, penetration, contact_pos
 
                     if is_col_0:
-                        print("is_col_0 ndarray", i_ga, i_gb, normal_0, contact_pos_0, penetration_0)
-                        _func_add_contact(i_ga, i_gb, normal_0, contact_pos_0, penetration_0, i_b, n_contacts, contact_data_geom_a, contact_data_geom_b, contact_data_normal, contact_data_pos, contact_data_penetration, contact_data_friction, contact_data_sol_params, contact_data_link_a, contact_data_link_b, geoms_info_friction, geoms_state_friction_ratio, geoms_info_sol_params, geoms_info_link_idx)
+                        _func_add_contact(
+                            i_ga=i_ga, 
+                            i_gb=i_gb, 
+                            normal=normal_0, 
+                            contact_pos=contact_pos_0, 
+                            penetration=penetration_0, 
+                            i_b=i_b, 
+                            n_contacts=n_contacts, 
+                            contact_data_geom_a=contact_data_geom_a, 
+                            contact_data_geom_b=contact_data_geom_b, 
+                            contact_data_normal=contact_data_normal, 
+                            contact_data_pos=contact_data_pos, 
+                            contact_data_penetration=contact_data_penetration, 
+                            contact_data_friction=contact_data_friction, 
+                            contact_data_sol_params=contact_data_sol_params, 
+                            contact_data_link_a=contact_data_link_a, 
+                            contact_data_link_b=contact_data_link_b, 
+                            geoms_info_friction=geoms_info_friction, 
+                            geoms_state_friction_ratio=geoms_state_friction_ratio, 
+                            geoms_info_sol_params=geoms_info_sol_params, 
+                            geoms_info_link_idx=geoms_info_link_idx
+                        )
                         if multi_contact:
                             # perturb geom_a around two orthogonal axes to find multiple contacts
                             axis_0, axis_1 = _func_contact_orthogonals(
@@ -1651,7 +1682,6 @@ def make_kernel_narrow_phase(is_ndarray: bool, is_serial: bool = False):
     ):
         ti.loop_config(serialize=is_serial)
         for i_b in range(n_broad_pairs.shape[0]):
-            # print("n_broad_pairs[i_b] ndarray", n_broad_pairs[i_b])
             for i_pair in range(n_broad_pairs[i_b]):
                 i_ga = broad_collision_pairs[i_pair, 0, i_b]
                 i_gb = broad_collision_pairs[i_pair, 1, i_b]

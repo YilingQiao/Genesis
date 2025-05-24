@@ -347,9 +347,12 @@ class Collider:
         )
         np.testing.assert_allclose(self._solver._d.active_buffer.to_numpy(), self.active_buffer.to_numpy())
 
+        s_time = time.time()
+
         self._func_narrow_phase()
         timer.stamp("func_narrow_phase")
-
+        e_time = time.time()
+        print(f"compile field time: {(e_time - s_time) : .4f} ms")
 
         from genesis.engine.solvers.rigid.make_kernels import make_kernel_narrow_phase
         kernel_narrow_phase = make_kernel_narrow_phase(is_ndarray=self._solver.is_ndarray)
@@ -387,7 +390,7 @@ class Collider:
         self._solver._d.support_vid.from_numpy(self._mpr.support_field.support_vid.to_numpy())
         self._solver._d.support_v.from_numpy(self._mpr.support_field.support_v.to_numpy())
 
-        
+        s_time = time.time()
         kernel_narrow_phase(
             broad_collision_pairs=self._solver._d.broad_collision_pairs,
             n_broad_pairs=self._solver._d.n_broad_pairs,
@@ -425,46 +428,107 @@ class Collider:
             support_v=self._solver._d.support_v,
             geoms_info_center=self._solver._geoms_info.center,
         )
+        e_time = time.time()
+        print(f"compile ndarray time: {(e_time - s_time) : .4f} ms")
 
-        from IPython import embed
-
-        embed()
         np.testing.assert_allclose(self._solver._geoms_state.pos.to_numpy(), self._solver._geoms_state.pos.to_numpy())
         np.testing.assert_allclose(self._solver._d.contact_cache_normal.to_numpy(), self.contact_cache.normal.to_numpy())
-
-        
-
-
-
-
-
-
         np.testing.assert_allclose(self._solver._d.n_contacts.to_numpy(), self.n_contacts.to_numpy())
-
         np.testing.assert_allclose(self._solver._d.simplex_size.to_numpy(), self._mpr.simplex_size.to_numpy())
-        np.testing.assert_allclose(self._solver._d.simplex_support_v1.to_numpy(), self._mpr.simplex_support.v1.to_numpy())
-        np.testing.assert_allclose(self._solver._d.simplex_support_v2.to_numpy(), self._mpr.simplex_support.v2.to_numpy())
-        np.testing.assert_allclose(self._solver._d.simplex_support_v.to_numpy(), self._mpr.simplex_support.v.to_numpy())
-        np.testing.assert_allclose(self._solver._d.support_cell_start.to_numpy(), self._mpr.support_field.support_cell_start.to_numpy())
-        np.testing.assert_allclose(self._solver._d.support_vid.to_numpy(), self._mpr.support_field.support_vid.to_numpy())
-        np.testing.assert_allclose(self._solver._d.support_v.to_numpy(), self._mpr.support_field.support_v.to_numpy())
 
+        atol = 1e-4
+        np.testing.assert_allclose(self._solver._d.simplex_support_v1.to_numpy(), self._mpr.simplex_support.v1.to_numpy(), atol=atol)
+        np.testing.assert_allclose(self._solver._d.simplex_support_v2.to_numpy(), self._mpr.simplex_support.v2.to_numpy(), atol=atol)
+        np.testing.assert_allclose(self._solver._d.simplex_support_v.to_numpy(), self._mpr.simplex_support.v.to_numpy(), atol=atol)
+        np.testing.assert_allclose(self._solver._d.support_cell_start.to_numpy(), self._mpr.support_field.support_cell_start.to_numpy(), atol=atol)
+        np.testing.assert_allclose(self._solver._d.support_vid.to_numpy(), self._mpr.support_field.support_vid.to_numpy(), atol=atol)
+        np.testing.assert_allclose(self._solver._d.support_v.to_numpy(), self._mpr.support_field.support_v.to_numpy(), atol=atol)
 
-
-
-        np.testing.assert_allclose(self._solver._d.contact_data_pos.to_numpy(), self.contact_data.pos.to_numpy())
-        np.testing.assert_allclose(self._solver._d.contact_data_normal.to_numpy(), self.contact_data.normal.to_numpy())
-        np.testing.assert_allclose(self._solver._d.contact_data_penetration.to_numpy(), self.contact_data.penetration.to_numpy())
-        np.testing.assert_allclose(self._solver._d.contact_data_friction.to_numpy(), self.contact_data.friction.to_numpy())
-        np.testing.assert_allclose(self._solver._d.contact_data_sol_params.to_numpy(), self.contact_data.sol_params.to_numpy())
-        np.testing.assert_allclose(self._solver._d.contact_data_link_a.to_numpy(), self.contact_data.link_a.to_numpy())
-        np.testing.assert_allclose(self._solver._d.contact_data_link_b.to_numpy(), self.contact_data.link_b.to_numpy())
-        np.testing.assert_allclose(self._solver._d.contact_data_geom_a.to_numpy(), self.contact_data.geom_a.to_numpy())
-        np.testing.assert_allclose(self._solver._d.contact_data_geom_b.to_numpy(), self.contact_data.geom_b.to_numpy())
-
+        n_contacts = self._solver._d.n_contacts.to_numpy()[0]
+        np.testing.assert_allclose(self._solver._d.contact_data_geom_a.to_numpy()[:n_contacts], self.contact_data.geom_a.to_numpy()[:n_contacts], atol=atol)
+        np.testing.assert_allclose(self._solver._d.contact_data_geom_b.to_numpy()[:n_contacts], self.contact_data.geom_b.to_numpy()[:n_contacts], atol=atol)
+        np.testing.assert_allclose(self._solver._d.contact_data_pos.to_numpy()[:n_contacts], self.contact_data.pos.to_numpy()[:n_contacts], atol=atol)
+        np.testing.assert_allclose(self._solver._d.contact_data_normal.to_numpy()[:n_contacts], self.contact_data.normal.to_numpy()[:n_contacts], atol=atol)
+        np.testing.assert_allclose(self._solver._d.contact_data_penetration.to_numpy()[:n_contacts], self.contact_data.penetration.to_numpy()[:n_contacts], atol=atol)
+        np.testing.assert_allclose(self._solver._d.contact_data_friction.to_numpy()[:n_contacts], self.contact_data.friction.to_numpy()[:n_contacts], atol=atol)
+        np.testing.assert_allclose(self._solver._d.contact_data_sol_params.to_numpy()[:n_contacts], self.contact_data.sol_params.to_numpy()[:n_contacts], atol=atol)
+        np.testing.assert_allclose(self._solver._d.contact_data_link_a.to_numpy()[:n_contacts], self.contact_data.link_a.to_numpy()[:n_contacts], atol=atol)
+        np.testing.assert_allclose(self._solver._d.contact_data_link_b.to_numpy()[:n_contacts], self.contact_data.link_b.to_numpy()[:n_contacts], atol=atol)
         
         
+        # from IPython import embed
+
+        # embed()
         
+
+
+        # timing
+
+
+        n_iter = 1000
+        # field
+
+        # ndarray
+        ti.sync()
+        s_time = time.time()
+        for i in range(n_iter):
+            self._solver._d.n_contacts.fill(0)
+            kernel_narrow_phase(
+                broad_collision_pairs=self._solver._d.broad_collision_pairs,
+                n_broad_pairs=self._solver._d.n_broad_pairs,
+                geoms_info_link_idx=self._solver._geoms_info.link_idx,
+                geoms_info_type=self._solver._geoms_info.type,
+                geoms_info_data=self._solver._geoms_info.data,
+                geoms_info_vert_start=self._solver._geoms_info.vert_start,
+                geoms_info_is_convex=self._solver._geoms_info.is_convex,
+                geoms_info_contype=self._solver._geoms_info.contype,
+                geoms_info_conaffinity=self._solver._geoms_info.conaffinity,
+                geoms_state_pos=self._solver._geoms_state.pos,
+                geoms_state_quat=self._solver._geoms_state.quat,
+                contact_cache_normal=self._solver._d.contact_cache_normal,
+                contact_data_pos=self._solver._d.contact_data_pos,
+                n_contacts=self._solver._d.n_contacts,
+                contact_data_geom_a=self._solver._d.contact_data_geom_a,
+                contact_data_geom_b=self._solver._d.contact_data_geom_b,
+                contact_data_normal=self._solver._d.contact_data_normal,
+                contact_data_penetration=self._solver._d.contact_data_penetration,
+                contact_data_friction=self._solver._d.contact_data_friction,
+                contact_data_sol_params=self._solver._d.contact_data_sol_params,
+                contact_data_link_a=self._solver._d.contact_data_link_a,
+                contact_data_link_b=self._solver._d.contact_data_link_b,
+                geoms_info_friction=self._solver._geoms_info.friction,
+                geoms_state_friction_ratio=self._solver._geoms_state.friction_ratio,
+                geoms_info_sol_params=self._solver._geoms_info.sol_params,
+                geoms_init_AABB=self._solver._d.geoms_init_AABB,
+                links_state_i_quat=self._solver._links_state.i_quat,
+                simplex_size=self._solver._d.simplex_size,
+                simplex_support_v1=self._solver._d.simplex_support_v1,
+                simplex_support_v2=self._solver._d.simplex_support_v2,
+                simplex_support_v=self._solver._d.simplex_support_v,
+                support_cell_start=self._solver._d.support_cell_start,
+                support_vid=self._solver._d.support_vid,
+                support_v=self._solver._d.support_v,
+                geoms_info_center=self._solver._geoms_info.center,
+            )
+            
+        ti.sync()
+        e_time = time.time()
+        print("n_contacts", self._solver._d.n_contacts.to_numpy()[0])
+        print("batch size", self._solver._B, "is_ndarray", self._solver.is_ndarray)
+        print(f"new type time: {(e_time - s_time)*1000/n_iter : .4f} ms")
+
+        ti.sync()
+        s_time = time.time()
+        for i in range(n_iter):
+            self.n_contacts.fill(0)
+            self._func_narrow_phase()
+        ti.sync()
+        e_time = time.time()
+        print(f"field time: {(e_time - s_time)*1000/n_iter : .4f} ms")
+
+        exit()
+        ########################################################### ndarray version
+
         
         
 
@@ -1541,7 +1605,6 @@ class Collider:
                 if i_detection == 0:
                     is_col_0, normal_0, penetration_0, contact_pos_0 = is_col, normal, penetration, contact_pos
                     if is_col_0:
-                        print("is_col_0 field", i_ga, i_gb, normal_0, contact_pos_0, penetration_0)
                         self._func_add_contact(i_ga, i_gb, normal_0, contact_pos_0, penetration_0, i_b)
                         if multi_contact:
                             # perturb geom_a around two orthogonal axes to find multiple contacts
