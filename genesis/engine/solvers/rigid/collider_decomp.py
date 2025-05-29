@@ -1542,7 +1542,7 @@ class Collider:
             ga_pos, ga_quat = ga_state.pos, ga_state.quat
             gb_pos, gb_quat = gb_state.pos, gb_state.quat
 
-            for i_detection in range(1): # TODO ndaary: 5
+            for i_detection in range(5): # TODO ndaary: 5
                 if multi_contact and is_col_0:
                     # Perturbation axis must not be aligned with the principal axes of inertia the geometry,
                     # otherwise it would be more sensitive to ill-conditionning.

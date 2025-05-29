@@ -20,7 +20,7 @@ from .sdf_decomp import SDF
 # TODO: is_ndarray as parameter
 from .data_class import DofsState, DofsInfo, GlobalData, vec_types, get_array_type
 
-is_ndarray = True
+is_ndarray = False
 
 # minimum constraint impedance
 IMP_MIN = 0.0001

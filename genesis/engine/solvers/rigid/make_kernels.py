@@ -1465,7 +1465,7 @@ def make_kernel_narrow_phase(is_ndarray: bool, is_serial: bool = False):
             ga_pos, ga_quat = geoms_state_pos[i_ga, i_b], geoms_state_quat[i_ga, i_b]
             gb_pos, gb_quat = geoms_state_pos[i_gb, i_b], geoms_state_quat[i_gb, i_b]
 
-            for i_detection in range(1): # TODO ndaary: 5
+            for i_detection in range(5): # TODO ndaary: 5
                 if multi_contact and is_col_0:
                     # Perturbation axis must not be aligned with the principal axes of inertia the geometry,
                     # otherwise it would be more sensitive to ill-conditionning.
@@ -1579,7 +1579,13 @@ def make_kernel_narrow_phase(is_ndarray: bool, is_serial: bool = False):
                         if multi_contact:
                             # perturb geom_a around two orthogonal axes to find multiple contacts
                             axis_0, axis_1 = _func_contact_orthogonals(
-                                i_ga, i_gb, normal_0, i_b, geoms_init_AABB, geoms_info_link_idx, links_state_i_quat
+                                i_ga=i_ga, 
+                                i_gb=i_gb, 
+                                normal=normal_0, 
+                                i_b=i_b, 
+                                geoms_init_AABB=geoms_init_AABB, 
+                                geoms_info_link_idx=geoms_info_link_idx, 
+                                links_state_i_quat=links_state_i_quat
                             )
                             n_con = 1
 
