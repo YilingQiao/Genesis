@@ -151,9 +151,10 @@ def parse_xml(morph, surface):
     # Build model from XML (either URDF or MJCF)
     mj = build_model(morph.file, not morph.visualization, morph.default_armature, merge_fixed_links, links_to_keep)
 
-    # Check if there is any tendon. Report a warning if so.
-    if mj.ntendon:
-        gs.logger.warning("(MJCF) Tendon not supported")
+    # We have another more specific warning later: (MJCF)
+    # gs.logger.warning(f"(MJCF) Approximating tendon by joint actuator for `{j_info['name']}`")
+    # if mj.ntendon:
+    #     gs.logger.warning("(MJCF) Tendon not supported")
 
     # Parse all geometries grouped by parent joint (or world)
     links_g_infos = parse_geoms(mj, morph.scale, surface, morph.file)

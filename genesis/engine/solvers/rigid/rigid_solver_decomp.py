@@ -46,9 +46,9 @@ def _sanitize_sol_params(
         gs.logger.debug(f"Constraint solver time constant not specified. Using minimum value (`{min_timeconst:0.6g}`).")
     if ((timeconst > gs.EPS) & (timeconst + gs.EPS < min_timeconst)).any():
         gs.logger.warning(
-            "Constraint solver time constant was increased to avoid numerical instability (from "
-            f"`{timeconst.min():0.6g}` to `{min_timeconst:0.6g}`). Decrease simulation timestep to avoid "
-            "altering the original value."
+            "Constraint solver time constant should be greater than 2*subste_dt. timeconst is changed from "
+            f"`{timeconst.min():0.6g}` to `{min_timeconst:0.6g}`). Decrease simulation timestep or "
+            "increase timeconst to avoid altering the original value."
         )
     timeconst[:] = timeconst.clip(min_timeconst)
     dampratio[:] = dampratio.clip(0.0)
@@ -218,6 +218,7 @@ class RigidSolver(Solver):
             self._init_vvert_fields()
             self._init_geom_fields()
             self._init_vgeom_fields()
+            exit()
             self._init_link_fields()
             self._init_entity_fields()
             self._init_equality_fields()
@@ -1787,7 +1788,7 @@ class RigidSolver(Solver):
 
     @ti.kernel
     def _kernel_forward_kinematics_links_geoms(self, envs_idx: ti.types.ndarray()):
-        ti.loop_config(serialize=self._para_level < gs.PARA_LEVEL.ALL)
+        ti.loop_config(serialize=self._para_level < gs.PARA_LEVEL.PARTIAL)
         for i_b in envs_idx:
             self._func_forward_kinematics(i_b)
             self._func_COM_links(i_b)
