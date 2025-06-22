@@ -352,7 +352,7 @@ class Collider:
         self._func_narrow_phase()
         timer.stamp("func_narrow_phase")
         e_time = time.time()
-        print(f"compile field time: {(e_time - s_time) : .4f} ms")
+        print(f"compile field time: {(e_time - s_time) : .4f} s")
 
         from genesis.engine.solvers.rigid.make_kernels import make_kernel_narrow_phase
         kernel_narrow_phase = make_kernel_narrow_phase(is_ndarray=self._solver.is_ndarray)
@@ -389,6 +389,59 @@ class Collider:
         self._solver._d.support_cell_start.from_numpy(self._mpr.support_field.support_cell_start.to_numpy())
         self._solver._d.support_vid.from_numpy(self._mpr.support_field.support_vid.to_numpy())
         self._solver._d.support_v.from_numpy(self._mpr.support_field.support_v.to_numpy())
+
+
+
+
+        ########################################################### ndarray version
+        arg_dict = dict(
+            broad_collision_pairs=self._solver._d.broad_collision_pairs,
+            n_broad_pairs=self._solver._d.n_broad_pairs,
+            geoms_info_link_idx=self._solver._geoms_info.link_idx,
+            geoms_info_type=self._solver._geoms_info.type,
+            geoms_info_data=self._solver._geoms_info.data,
+            geoms_info_vert_start=self._solver._geoms_info.vert_start,
+            geoms_info_is_convex=self._solver._geoms_info.is_convex,
+            geoms_info_contype=self._solver._geoms_info.contype,
+            geoms_info_conaffinity=self._solver._geoms_info.conaffinity,
+            geoms_state_pos=self._solver._geoms_state.pos,
+            geoms_state_quat=self._solver._geoms_state.quat,
+            contact_cache_normal=self._solver._d.contact_cache_normal,
+            contact_data_pos=self._solver._d.contact_data_pos,
+            n_contacts=self._solver._d.n_contacts,
+            contact_data_geom_a=self._solver._d.contact_data_geom_a,
+            contact_data_geom_b=self._solver._d.contact_data_geom_b,
+            contact_data_normal=self._solver._d.contact_data_normal,
+            contact_data_penetration=self._solver._d.contact_data_penetration,
+            contact_data_friction=self._solver._d.contact_data_friction,
+            contact_data_sol_params=self._solver._d.contact_data_sol_params,
+            contact_data_link_a=self._solver._d.contact_data_link_a,
+            contact_data_link_b=self._solver._d.contact_data_link_b,
+            geoms_info_friction=self._solver._geoms_info.friction,
+            geoms_state_friction_ratio=self._solver._geoms_state.friction_ratio,
+            geoms_info_sol_params=self._solver._geoms_info.sol_params,
+            geoms_init_AABB=self._solver._d.geoms_init_AABB,
+            links_state_i_quat=self._solver._links_state.i_quat,
+            simplex_size=self._solver._d.simplex_size,
+            simplex_support_v1=self._solver._d.simplex_support_v1,
+            simplex_support_v2=self._solver._d.simplex_support_v2,
+            simplex_support_v=self._solver._d.simplex_support_v,
+            support_cell_start=self._solver._d.support_cell_start,
+            support_vid=self._solver._d.support_vid,
+            support_v=self._solver._d.support_v,
+            geoms_info_center=self._solver._geoms_info.center,
+        )
+        for k, v in arg_dict.items():
+            arg_dict[k] = v.to_numpy()
+        
+        # import pickle
+        # with open("arg_np.pkl", "wb") as f:
+        #     pickle.dump(arg_dict, f)
+            
+        ########################################################### ndarray version
+
+
+
 
         s_time = time.time()
         kernel_narrow_phase(
@@ -429,7 +482,7 @@ class Collider:
             geoms_info_center=self._solver._geoms_info.center,
         )
         e_time = time.time()
-        print(f"compile ndarray time: {(e_time - s_time) : .4f} ms")
+        print(f"compile ndarray time: {(e_time - s_time) : .4f} s")
 
         np.testing.assert_allclose(self._solver._geoms_state.pos.to_numpy(), self._solver._geoms_state.pos.to_numpy())
         np.testing.assert_allclose(self._solver._d.contact_cache_normal.to_numpy(), self.contact_cache.normal.to_numpy())
@@ -456,16 +509,10 @@ class Collider:
         np.testing.assert_allclose(self._solver._d.contact_data_link_b.to_numpy()[:n_contacts], self.contact_data.link_b.to_numpy()[:n_contacts], atol=atol)
         
         
-        # from IPython import embed
-
-        # embed()
-        
-
+        ########################################################### profiling
 
         # timing
-
-
-        n_iter = 1000
+        n_iter = 10000
         # field
 
         # ndarray
@@ -510,13 +557,14 @@ class Collider:
                 support_v=self._solver._d.support_v,
                 geoms_info_center=self._solver._geoms_info.center,
             )
-            
+        # save the argument to a dict
         ti.sync()
         e_time = time.time()
         print("n_contacts", self._solver._d.n_contacts.to_numpy()[0])
         print("batch size", self._solver._B, "is_ndarray", self._solver.is_ndarray)
-        print(f"new type time: {(e_time - s_time)*1000/n_iter : .4f} ms")
 
+        new_type = "ndarray arg" if self._solver.is_ndarray else "field arg"
+        print(f"{new_type} time: {(e_time - s_time)*1000/n_iter : .4f} ms")
         ti.sync()
         s_time = time.time()
         for i in range(n_iter):
@@ -524,12 +572,16 @@ class Collider:
             self._func_narrow_phase()
         ti.sync()
         e_time = time.time()
-        print(f"field time: {(e_time - s_time)*1000/n_iter : .4f} ms")
-
-        exit()
-        ########################################################### ndarray version
+        print(f"global field time: {(e_time - s_time)*1000/n_iter : .4f} ms")
 
         
+        from IPython import embed
+
+        embed()
+        
+        
+
+        exit()
         
 
         print("narrow phase")
