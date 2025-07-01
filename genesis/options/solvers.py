@@ -46,6 +46,7 @@ class SimOptions(Options):
     gravity: tuple = (0.0, 0.0, -9.81)
     floor_height: float = 0.0
     requires_grad: bool = False
+    use_ndarray: bool = False  # whether to use ndarray for the underlying data structure
 
     # not set by user
     _steps_local: Optional[int] = None

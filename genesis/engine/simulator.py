@@ -1,4 +1,6 @@
 from typing import TYPE_CHECKING
+import os
+
 import numpy as np
 import taichi as ti
 
@@ -86,6 +88,10 @@ class Simulator(RBC):
     ):
         self._scene = scene
 
+        # get migration_mode from os environment variable MIGRATION_MODE
+        self._migration_mode = False 
+        if "MIGRATION_MODE" in os.environ:
+            self._migration_mode = os.environ["MIGRATION_MODE"] == "1"
         # options
         self.options = options
         self.coupler_options = coupler_options
@@ -252,6 +258,24 @@ class Simulator(RBC):
     # ------------------------------------------------------------------------------------
 
     def step(self, in_backward=False):
+        if self._migration_mode:
+            gs.logger.info(
+                "Migration mode is enabled. This is only for checking the correctness during migration."
+            )
+            if self._rigid_only:  # "Only Advance!" --Thomas Wade :P
+                for _ in range(self._substeps):
+                    self.rigid_solver.substep_migration()
+                    self._cur_substep_global += 1
+
+            else:
+                gs.raise_exception(
+                    "Migration mode is not supported for non-rigid solvers yet."
+                )
+            gs.logger.info(
+                "Great! Migration check is done. The simulator will be closed now."
+            )
+            exit(0)
+
         if self._rigid_only:  # "Only Advance!" --Thomas Wade :P
             for _ in range(self._substeps):
                 self.rigid_solver.substep()
@@ -478,3 +502,8 @@ class Simulator(RBC):
     def active_solvers(self):
         """The list of active solvers in the simulator."""
         return self._active_solvers
+    
+    @property
+    def migration_mode(self):
+        """Whether the simulator is in migration mode."""
+        return self._migration_mode

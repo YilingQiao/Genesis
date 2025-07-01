@@ -13,6 +13,8 @@ from genesis.utils.misc import ti_field_to_torch, DeprecationError, ALLOCATE_TEN
 from genesis.engine.entities import AvatarEntity, DroneEntity, RigidEntity
 from genesis.engine.states.solvers import RigidSolverState
 from genesis.styles import colors, formats
+import genesis.engine.solvers.rigid._imp_rigid_solver as _imp
+import genesis.engine.data_container as data_container
 
 from ..base_solver import Solver
 from .collider_decomp import Collider
@@ -111,6 +113,37 @@ class RigidSolver(Solver):
         self._options = options
 
         self._cur_step = -1
+
+        if self.sim.migration_mode:
+            self.use_ndarray = self.sim.options.use_ndarray
+            self._entities_info = data_container.EntityInfo(use_ndarray=self.use_ndarray, shape=self.n_entities)
+            self._entities_state = data_container.EntityState(use_ndarray=self.use_ndarray, shape=self._batch_shape(self.n_entities))
+            self._links_info = data_container.LinksInfo(use_ndarray=self.use_ndarray, shape=self._batch_shape(self.n_links))
+            self._dofs_info = data_container.DofsInfo(use_ndarray=self.use_ndarray, shape=self._batch_shape(self.n_dofs))
+            self._joints_info = data_container.JointsInfo(use_ndarray=self.use_ndarray, shape=self._batch_shape(self.n_joints))
+            self._geoms_info = data_container.GeomsInfo(use_ndarray=self.use_ndarray, shape=self._batch_shape(self.n_geoms))
+            self._verts_info = data_container.VertsInfo(use_ndarray=self.use_ndarray, shape=self._batch_shape(self.n_verts))
+            self._vgeoms_info = data_container.VgeomsInfo(use_ndarray=self.use_ndarray, shape=self._batch_shape(self.n_vgeoms))
+            self._vfaces_info = data_container.VfacesInfo(use_ndarray=self.use_ndarray, shape=self._batch_shape(self.n_vfaces))
+            self._vverts_info = data_container.VvertsInfo(use_ndarray=self.use_ndarray, shape=self._batch_shape(self.n_vverts))
+            self._faces_info = data_container.FacesInfo(use_ndarray=self.use_ndarray, shape=self._batch_shape(self.n_faces))
+            self._edges_info = data_container.EdgesInfo(use_ndarray=self.use_ndarray, shape=self._batch_shape(self.n_edges))
+
+            self._links_state = data_container.LinksState(use_ndarray=self.use_ndarray, shape=self._batch_shape(self.n_links))
+            self._dofs_state = data_container.DofsState(use_ndarray=self.use_ndarray, shape=self._batch_shape(self.n_dofs))
+            self._joints_state = data_container.JointsState(use_ndarray=self.use_ndarray, shape=self._batch_shape(self.n_joints))
+            self._geoms_state = data_container.GeomsState(use_ndarray=self.use_ndarray, shape=self._batch_shape(self.n_geoms))
+            self._verts_state = data_container.VertsState(use_ndarray=self.use_ndarray, shape=self._batch_shape(self.n_verts))
+            self._vgeoms_state = data_container.VgeomsState(use_ndarray=self.use_ndarray, shape=self._batch_shape(self.n_vgeoms))
+            
+            self._d = data_container.GlobalData(
+                is_ndarray=self.use_ndarray,
+                n_dofs=self.n_dofs_,
+                n_entities=self.n_entities_,
+                n_geoms=self.n_geoms_,
+                f_batch=self._batch_shape,
+            )
+            
 
     def add_entity(self, idx, material, morph, surface, visualize_contact) -> Entity:
         if isinstance(material, gs.materials.Avatar):
@@ -1714,6 +1747,118 @@ class RigidSolver(Solver):
         # timer.stamp("constraint_force")
         self._kernel_step_2()
         # timer.stamp("kernel_step_2")
+
+    def make_compare_kernel_step_1(self):
+
+        self._kernel_step_1()
+
+        # use_ndarray: bool = True, para_level: bool = False, 
+        # batch_links_info: bool = False, 
+        # batch_joints_info: bool = False, 
+        # batch_dofs_info: bool = Falseuse_ndarray
+
+        self.kernel_step_1 = _imp.make_kernel_step_1(
+            use_ndarray=self.use_ndarray,
+            batch_links_info=self._options.batch_links_info,
+            batch_joints_info=self._options.batch_joints_info,
+            batch_dofs_info=self._options.batch_dofs_info,
+            )
+
+        
+        self.kernel_step_1(
+            entities_info_link_start=self._entities_info.link_start,
+            entities_info_link_end=self._entities_info.link_end,
+            links_info_pos=self._links_info.pos,
+            links_info_quat=self._links_info.quat,
+            links_info_parent_idx=self._links_info.parent_idx,
+            links_info_joint_start=self._links_info.joint_start,
+            links_info_joint_end=self._links_info.joint_end,
+            links_info_is_fixed=self._links_info.is_fixed,
+            links_info_n_dofs=self._links_info.n_dofs,
+            links_info_root_idx=self._links_info.root_idx,
+            links_info_inertial_pos=self._links_info.inertial_pos,
+            links_info_inertial_quat=self._links_info.inertial_quat,
+            links_info_inertial_mass=self._links_info.inertial_mass,
+            links_info_inertial_i=self._links_info.inertial_i,
+            joints_info_type=self._joints_info.type,
+            joints_info_q_start=self._joints_info.q_start,
+            joints_info_dof_start=self._joints_info.dof_start,
+            joints_info_dof_end=self._joints_info.dof_end,
+            joints_info_pos=self._joints_info.pos,
+            dofs_info_motion_ang=self._dofs_info.motion_ang,
+            dofs_info_motion_vel=self._dofs_info.motion_vel,
+            links_state_pos=self._links_state.pos,
+            links_state_quat=self._links_state.quat,
+            joints_state_xanchor=self._joints_state.xanchor,
+            joints_state_xaxis=self._joints_state.xaxis,
+            dofs_state_pos=self._dofs_state.pos,
+            rigid_qpos=self._d.qpos,
+            rigid_qpos0=self._d.qpos0,
+            links_state_root_COM=self._links_state.root_COM,
+            links_state_mass_sum=self._links_state.mass_sum,
+            links_state_i_pos=self._links_state.i_pos,
+            links_state_i_quat=self._links_state.i_quat,
+            links_state_COM=self._links_state.COM,
+            links_state_cinr_inertial=self._links_state.cinr_inertial,
+            links_state_cinr_pos=self._links_state.cinr_pos,
+            links_state_cinr_quat=self._links_state.cinr_quat,
+            links_state_cinr_mass=self._links_state.cinr_mass,
+            links_state_j_pos=self._links_state.j_pos,
+            links_state_j_quat=self._links_state.j_quat,
+            links_state_i_pos_shift=self._links_state.i_pos_shift,
+            links_state_mass_shift=self._links_state.mass_shift,
+            links_state_cd_vel=self._links_state.cd_vel,
+            links_state_cd_ang=self._links_state.cd_ang,
+            links_state_vel=self._links_state.vel,
+            links_state_ang=self._links_state.ang,
+            dofs_state_vel=self._dofs_state.vel,
+            dofs_state_cdof_ang=self._dofs_state.cdof_ang,
+            dofs_state_cdof_vel=self._dofs_state.cdof_vel,
+            dofs_state_cdofvel_ang=self._dofs_state.cdofvel_ang,
+            dofs_state_cdofvel_vel=self._dofs_state.cdofvel_vel,
+            dofs_state_cdofd_ang=self._dofs_state.cdofd_ang,
+            dofs_state_cdofd_vel=self._dofs_state.cdofd_vel,
+            geoms_info_link_idx=self._geoms_info.link_idx,
+            geoms_info_pos=self._geoms_info.pos,
+            geoms_info_quat=self._geoms_info.quat,
+            geoms_state_pos=self._geoms_state.pos,
+            geoms_state_quat=self._geoms_state.quat,
+            geoms_state_verts_updated=self._geoms_state.verts_updated,
+        )
+
+        np.testing.assert_allclose(self._d.qpos.to_numpy(), self.qpos.to_numpy())
+        self._qpos.from_numpy(self.qpos.to_numpy())
+        np.testing.assert_allclose(self._d.qpos0.to_numpy(), self.qpos0.to_numpy())
+        self._qpos0.from_numpy(self.qpos0.to_numpy())
+        np.testing.assert_allclose(self._joints_state.xanchor.to_numpy(), self.joints_state.xanchor.to_numpy())
+        self._joints_state.xanchor.from_numpy(self.joints_state.xanchor.to_numpy())
+        np.testing.assert_allclose(self._joints_state.xaxis.to_numpy(), self.joints_state.xaxis.to_numpy())
+        self._joints_state.xaxis.from_numpy(self.joints_state.xaxis.to_numpy())
+        np.testing.assert_allclose(self._dofs_state.pos.to_numpy(), self.dofs_state.pos.to_numpy())
+        self._dofs_state.pos.from_numpy(self.dofs_state.pos.to_numpy())
+        np.testing.assert_allclose(self._links_state.pos.to_numpy(), self.links_state.pos.to_numpy())
+        self._links_state.pos.from_numpy(self.links_state.pos.to_numpy())
+        np.testing.assert_allclose(self._links_state.quat.to_numpy(), self.links_state.quat.to_numpy())
+        self._links_state.quat.from_numpy(self.links_state.quat.to_numpy())
+
+        np.testing.assert_allclose(self._links_state.mass_sum.to_numpy(), self.links_state.mass_sum.to_numpy())
+        self._links_state.mass_sum.from_numpy(self.links_state.mass_sum.to_numpy())
+
+        np.testing.assert_allclose(self._links_info.inertial_pos.to_numpy(), self.links_info.inertial_pos.to_numpy())
+        self._links_info.inertial_pos.from_numpy(self.links_info.inertial_pos.to_numpy())
+        np.testing.assert_allclose(self._links_state.i_pos_shift.to_numpy(), self.links_state.i_pos_shift.to_numpy())
+        self._links_state.i_pos_shift.from_numpy(self.links_state.i_pos_shift.to_numpy())
+        np.testing.assert_allclose(self._links_info.inertial_quat.to_numpy(), self.links_info.inertial_quat.to_numpy())
+        self._links_info.inertial_quat.from_numpy(self.links_info.inertial_quat.to_numpy())
+
+
+    def substep_migration(self):
+        self.make_compare_kernel_step_1()
+        # # timer.stamp("kernel_step_1")
+        # self._func_constraint_force()
+        # # timer.stamp("constraint_force")
+        # self._kernel_step_2()
+        # # timer.stamp("kernel_step_2")
 
     @ti.kernel
     def _kernel_step_1(self):
