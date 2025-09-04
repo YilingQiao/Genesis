@@ -12,7 +12,7 @@ from asset_dir import AssetDir
 
 import trimesh as my_trimesh
 class PhysOptim(object):
-    def __init__(self, mesh_trimesh_dict, optim_num, visualize=True):
+    def __init__(self, mesh_trimesh_dict, optim_num=0, visualize=True):
         Timer.disable_all()
         Logger.set_level(Logger.Level.Error)
 
@@ -67,6 +67,7 @@ class PhysOptim(object):
         cube_mesh = {}
         blob_obj = {}
         blob_mesh = {}
+        self._mesh_handles = {}
         for i in range(scene_number):
             cube_obj[i] = scene.objects().create(f'cube{i}')
 
@@ -83,6 +84,7 @@ class PhysOptim(object):
             stk.apply_to(cube_mesh[i], moduli_box) # 100 MPa
             #rm.apply_to(gear_mesh, 100, motor_axis=Vector3.UnitZ(), motor_rot_vel=np.pi)
             cube_obj[i].geometries().create(cube_mesh[i])
+            self._mesh_handles[f'cube{i}'] = cube_mesh[i]
 
 
             blob_obj[i] = scene.objects().create(f'blob{i}')
@@ -95,6 +97,7 @@ class PhysOptim(object):
             abd.apply_to(blob_mesh[i], 1e9) # 100 MPa
             #rm.apply_to(gear_mesh, 100, motor_axis=Vector3.UnitZ(), motor_rot_vel=np.pi)
             blob_obj[i].geometries().create(blob_mesh[i])
+            self._mesh_handles[f'blob{i}'] = blob_mesh[i]
 
 
         ground_height = 0
@@ -105,6 +108,12 @@ class PhysOptim(object):
         # end setup the scene
 
         world.init(scene)
+        self._engine = engine
+        self._world = world
+        self._scene = scene
+        self._visualize = visualize
+        self._scene_gui = None
+        # Lazy import to avoid GUI setup when not visualizing
 
         #visualize = False
         if visualize:
@@ -115,26 +124,53 @@ class PhysOptim(object):
             
             sgui.register()
             sgui.set_edge_width(1)
+            self._scene_gui = sgui
 
             run = True
             
-            def on_update():
-                if(world.frame()<30000000000):
-                    world.advance()
-                    world.retrieve()
-                    #world.dump()
-                    #Timer.report()
+            # def on_update():
+            #     if(world.frame()<30000000000):
+            #         world.advance()
+            #         world.retrieve()
+            #         #world.dump()
+            #         #Timer.report()
 
-                    sgui.update()
-                else:
-                    exit()
+            #         sgui.update()
+            #     else:
+            #         exit()
 
-            ps.set_user_callback(on_update)
-            ps.show()
+            # ps.set_user_callback(on_update)
+            # ps.show()
         else:
-            for i in range(1000000): 
-                world.advance()
-                world.retrieve()
+            # Non-visual mode does not auto-run. Users should call step().
+            pass
+
+    def step(self):
+        """Advance one frame and return all vertices' positions and velocities per object.
+
+        Returns a dict: { object_name: { 'positions': (N,3) float64, 'velocities': (N,3) float64 } }
+        """
+        # Advance simulation
+        print("step")
+        self._world.advance()
+        self._world.retrieve()
+        # If GUI is active, let it update too
+        if self._scene_gui is not None:
+            self._scene_gui.update()
+
+        # Gather positions and velocities from each mesh directly
+        from uipc import builtin
+        state = {}
+        for name, geo in self._mesh_handles.items():
+            pos = geo.positions().view().reshape(-1, 3)
+            vel_slot = geo.vertices().find(builtin.velocity)
+            vel = vel_slot.view().reshape(-1, 3) if vel_slot is not None else np.zeros_like(pos)
+            state[name] = {
+                'positions': pos,
+                'velocities': vel,
+            }
+            print("state", name, state[name]['positions'].shape, state[name]['velocities'].shape)
+        return state
 
 
 if __name__ == '__main__':

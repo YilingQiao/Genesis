@@ -68,7 +68,11 @@ def main():
         mesh_trimesh_dict = {}
         mesh_trimesh_dict['cube'] = [cube.init_positions.numpy(), cube.elems]
         mesh_trimesh_dict['blob'] = [blob.init_positions.numpy(), blob.elems]
-        PhysOptim(mesh_trimesh_dict, 0)
+        ipc_sim = PhysOptim(mesh_trimesh_dict, optim_num=0, visualize=True)
+        for i_step in range(1000000):
+            print(f"step {i_step}")
+            new_state = ipc_sim.step()
+            # new_state is a (N, 3) numpy array of surface vertices
 
 
 if __name__ == "__main__":
