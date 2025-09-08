@@ -4,6 +4,7 @@ from .profiling import ProfilingOptions
 from .solvers import (
     AvatarOptions,
     BaseCouplerOptions,
+    IPCOptions,
     FEMOptions,
     LegacyCouplerOptions,
     MPMOptions,
@@ -21,6 +22,7 @@ __all__ = [
     "AvatarOptions",
     "BaseCouplerOptions",
     "CoacdOptions",
+    "IPCOptions",
     "FEMOptions",
     "FoamOptions",
     "LegacyCouplerOptions",

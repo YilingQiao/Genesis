@@ -325,6 +325,12 @@ class Raytracer:
                 if fem_entity.surface.vis_mode == "visual":
                     self.add_deformable(str(fem_entity.id))
 
+        # IPC entities
+        if hasattr(self.sim, "ipc_solver") and self.sim.ipc_solver.is_active():
+            for ipc_entity in self.sim.ipc_solver.entities:
+                if ipc_entity.surface.vis_mode == "visual":
+                    self.add_deformable(str(ipc_entity.id))
+
         gs.exit_callbacks.append(self.destroy)
 
     def get_transform(self, matrix):
@@ -796,6 +802,28 @@ class Raytracer:
 
                     self.update_deformable(
                         str(fem_entity.uid),
+                        vertices,
+                        triangles,
+                        trimesh.Trimesh(vertices=vertices, faces=triangles, process=False).vertex_normals,
+                        np.array([]),
+                    )
+
+        # IPC entities
+        if hasattr(self.sim, "ipc_solver") and self.sim.ipc_solver.is_active():
+            vertices_all, triangles_all = self.sim.ipc_solver.get_state_render(self.sim.cur_substep_local)
+            vertices_all = vertices_all.to_numpy()[:, self.rendered_envs_idx[0]]
+            triangles_all = triangles_all.to_numpy()
+
+            for ipc_entity in self.sim.ipc_solver.entities:
+                if ipc_entity.surface.vis_mode == "visual":
+                    vertices = vertices_all[ipc_entity.v_start : ipc_entity.v_start + ipc_entity.n_vertices]
+                    triangles = (
+                        triangles_all[ipc_entity.s_start : (ipc_entity.s_start + ipc_entity.n_surfaces)]
+                        - ipc_entity.v_start
+                    )
+
+                    self.update_deformable(
+                        str(ipc_entity.uid),
                         vertices,
                         triangles,
                         trimesh.Trimesh(vertices=vertices, faces=triangles, process=False).vertex_normals,

@@ -6,3 +6,4 @@ from .sph_solver import SPHSolver
 from .fem_solver import FEMSolver
 from .sf_solver import SFSolver
 from .pbd_solver import PBDSolver
+from .ipc_solver import IpcSolver

@@ -106,6 +106,7 @@ class RasterizerContext:
         self.on_sph()
         self.on_pbd()
         self.on_fem()
+        self.on_ipc()
 
         # segmentation mapping
         self.generate_seg_vars()
@@ -712,6 +713,7 @@ class RasterizerContext:
             vertices_all, triangles_all = self.sim.fem_solver.get_state_render(self.sim.cur_substep_local)
             vertices_all = vertices_all.to_numpy(dtype=gs.np_float)[:, self.rendered_envs_idx[0]]
             triangles_all = triangles_all.to_numpy(dtype=gs.np_int).reshape((-1, 3))
+            print("update_fem", vertices_all.mean())
 
             for fem_entity in self.sim.fem_solver.entities:
                 if fem_entity.surface.vis_mode == "visual":
@@ -721,6 +723,50 @@ class RasterizerContext:
                         - fem_entity.v_start
                     )
                     node = self.static_nodes[fem_entity.uid]
+                    update_data = self._scene.reorder_vertices(node, vertices)
+                    buffer_updates[self._scene.get_buffer_id(node, "pos")] = update_data
+
+    def on_ipc(self):
+        if hasattr(self.sim, "ipc_solver") and self.sim.ipc_solver.is_active():
+            vertices_all, triangles_all = self.sim.ipc_solver.get_state_render(self.sim.cur_substep_local)
+            vertices_all = vertices_all.to_numpy(dtype=gs.np_float)[:, self.rendered_envs_idx[0]]
+            triangles_all = triangles_all.to_numpy(dtype=gs.np_int).reshape((-1, 3))
+
+            for ipc_entity in self.sim.ipc_solver.entities:
+                if ipc_entity.surface.vis_mode == "visual":
+                    vertices = vertices_all[ipc_entity.v_start : ipc_entity.v_start + ipc_entity.n_vertices]
+                    triangles = (
+                        triangles_all[ipc_entity.s_start : (ipc_entity.s_start + ipc_entity.n_surfaces)]
+                        - ipc_entity.v_start
+                    )
+
+                    # Select only vertices used in surface triangles, then reindex triangles
+                    surf_idx, inv = np.unique(triangles.flat, return_inverse=True)
+                    triangles = inv.reshape(triangles.shape)
+                    vertices = vertices[surf_idx]
+
+                    mesh = trimesh.Trimesh(vertices, triangles, process=False)
+                    mesh.visual = mu.surface_uvs_to_trimesh_visual(
+                        ipc_entity.surface, n_verts=ipc_entity.n_surface_vertices
+                    )
+                    self.add_static_node(
+                        ipc_entity, pyrender.Mesh.from_trimesh(mesh, double_sided=ipc_entity.surface.double_sided)
+                    )
+
+    def update_ipc(self, buffer_updates):
+        if hasattr(self.sim, "ipc_solver") and self.sim.ipc_solver.is_active():
+            vertices_all, triangles_all = self.sim.ipc_solver.get_state_render(self.sim.cur_substep_local)
+            vertices_all = vertices_all.to_numpy(dtype=gs.np_float)[:, self.rendered_envs_idx[0]]
+            triangles_all = triangles_all.to_numpy(dtype=gs.np_int).reshape((-1, 3))
+
+            for ipc_entity in self.sim.ipc_solver.entities:
+                if ipc_entity.surface.vis_mode == "visual":
+                    vertices = vertices_all[ipc_entity.v_start : ipc_entity.v_start + ipc_entity.n_vertices]
+                    triangles = (
+                        triangles_all[ipc_entity.s_start : (ipc_entity.s_start + ipc_entity.n_surfaces)]
+                        - ipc_entity.v_start
+                    )
+                    node = self.static_nodes[ipc_entity.uid]
                     update_data = self._scene.reorder_vertices(node, vertices)
                     buffer_updates[self._scene.get_buffer_id(node, "pos")] = update_data
 
@@ -857,6 +903,7 @@ class RasterizerContext:
         self.update_sph(self.buffer)
         self.update_pbd(self.buffer)
         self.update_fem(self.buffer)
+        self.update_ipc(self.buffer)
 
     def add_light(self, light):
         # light direction is light pose's -z frame

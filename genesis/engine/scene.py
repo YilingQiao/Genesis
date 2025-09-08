@@ -22,6 +22,7 @@ from genesis.options import (
     AvatarOptions,
     BaseCouplerOptions,
     LegacyCouplerOptions,
+    IPCOptions,
     FEMOptions,
     MPMOptions,
     PBDOptions,
@@ -97,6 +98,7 @@ class Scene(RBC):
         mpm_options: MPMOptions | None = None,
         sph_options: SPHOptions | None = None,
         fem_options: FEMOptions | None = None,
+        ipc_options: IPCOptions | None = None,
         sf_options: SFOptions | None = None,
         pbd_options: PBDOptions | None = None,
         vis_options: VisOptions | None = None,
@@ -115,6 +117,7 @@ class Scene(RBC):
         mpm_options = mpm_options or MPMOptions()
         sph_options = sph_options or SPHOptions()
         fem_options = fem_options or FEMOptions()
+        ipc_options = ipc_options or IPCOptions()
         sf_options = sf_options or SFOptions()
         pbd_options = pbd_options or PBDOptions()
         vis_options = vis_options or VisOptions()
@@ -152,6 +155,7 @@ class Scene(RBC):
         self.mpm_options = mpm_options
         self.sph_options = sph_options
         self.fem_options = fem_options
+        self.ipc_options = ipc_options
         self.sf_options = sf_options
         self.pbd_options = pbd_options
         self.profiling_options = profiling_options
@@ -167,6 +171,7 @@ class Scene(RBC):
         self.mpm_options.copy_attributes_from(self.sim_options)
         self.sph_options.copy_attributes_from(self.sim_options)
         self.fem_options.copy_attributes_from(self.sim_options)
+        self.ipc_options.copy_attributes_from(self.sim_options)
         self.sf_options.copy_attributes_from(self.sim_options)
         self.pbd_options.copy_attributes_from(self.sim_options)
 
@@ -181,6 +186,7 @@ class Scene(RBC):
             mpm_options=self.mpm_options,
             sph_options=self.sph_options,
             fem_options=self.fem_options,
+            ipc_options=self.ipc_options,
             sf_options=self.sf_options,
             pbd_options=self.pbd_options,
         )
@@ -392,7 +398,14 @@ class Scene(RBC):
                 gs.raise_exception(
                     f"Unsupported `surface.vis_mode` for material {material}: '{surface.vis_mode}'. Expected one of: ['particle', 'visual']."
                 )
+        elif isinstance(material, (gs.materials.IPC.Base)):
+            if surface.vis_mode is None:
+                surface.vis_mode = "visual"
 
+            if surface.vis_mode not in ["visual"]:
+                gs.raise_exception(
+                    f"Unsupported `surface.vis_mode` for material {material}: '{surface.vis_mode}'. Expected one of: ['visual']."
+                )
         else:
             gs.raise_exception()
 

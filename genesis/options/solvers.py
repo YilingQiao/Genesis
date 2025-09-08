@@ -663,3 +663,72 @@ class SFOptions(Options):
     inlet_vel: Optional[tuple[int, int, int]] = (0, 0, 1)
     inlet_quat: Optional[tuple[int, int, int, int]] = (1, 0, 0, 0)
     inlet_s: Optional[float] = 400.0
+
+
+class IPCOptions(Options):
+    """
+    Options configuring the IpcSolver (external UIPC-based IPC solver).
+
+    Parameters
+    ----------
+    dt : float, optional
+        Time duration for each simulation step in seconds. If none, it will inherit from `SimOptions`. Defaults to None.
+    gravity : tuple, optional
+        Gravity force in N/kg. If none, it will inherit from `SimOptions`. Defaults to None.
+    floor_height : float, optional
+        Height of the floor in meters. If none, it will inherit from `SimOptions`. Defaults to None.
+
+    backend : str, optional
+        UIPC engine backend device (e.g., 'cuda', 'cpu'). Defaults to 'cuda'.
+    workspace : str, optional
+        Workspace directory for UIPC engine outputs. Defaults to None.
+
+    # Contact and friction
+    contact_enable : bool, optional
+        Whether to enable contact. Defaults to True.
+    contact_d_hat : float, optional
+        IPC barrier distance threshold. Defaults to 1e-3.
+    friction_enable : bool, optional
+        Whether to enable friction. Defaults to False.
+    friction_mu : float, optional
+        Friction coefficient for default model. Defaults to 0.1.
+    contact_stiffness : float, optional
+        Default contact stiffness (Pa) for contact tabular model. Defaults to 1e9.
+
+    # Solver settings
+    newton_velocity_tol : float, optional
+        Velocity tolerance for Newton iterations. Defaults to 1e-3.
+    line_search_max_iter : int, optional
+        Maximum iterations for line search. Defaults to 30.
+    linear_system_tol_rate : float, optional
+        Tolerance rate for linear solves. Defaults to 1e-4.
+    sanity_check_enable : bool, optional
+        Whether to enable UIPC sanity checks. Defaults to False.
+
+    # Routing and batching
+    hijack_fem : bool, optional
+        If True, FEM materials/entities will be routed to IpcSolver instead of FEMSolver. Defaults to False.
+    """
+
+    dt: Optional[float] = None
+    gravity: Optional[tuple] = None
+    floor_height: Optional[float] = None
+
+    backend: str = "cuda"
+    workspace: Optional[str] = None
+
+    # contact and friction
+    contact_enable: bool = True
+    contact_d_hat: float = 1e-3
+    friction_enable: bool = False
+    friction_mu: float = 0.1
+    contact_stiffness: float = 1e9
+
+    # solver settings
+    newton_velocity_tol: float = 1e-3
+    line_search_max_iter: int = 30
+    linear_system_tol_rate: float = 1e-4
+    sanity_check_enable: bool = False
+
+    # routing
+    hijack_fem: bool = False

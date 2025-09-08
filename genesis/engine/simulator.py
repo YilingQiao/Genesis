@@ -11,6 +11,7 @@ from genesis.options.solvers import (
     LegacyCouplerOptions,
     SAPCouplerOptions,
     FEMOptions,
+    IPCOptions,
     MPMOptions,
     PBDOptions,
     RigidOptions,
@@ -26,6 +27,7 @@ from .solvers.base_solver import Solver
 from .solvers import (
     AvatarSolver,
     FEMSolver,
+    IpcSolver,
     MPMSolver,
     PBDSolver,
     RigidSolver,
@@ -84,6 +86,7 @@ class Simulator(RBC):
         mpm_options: MPMOptions,
         sph_options: SPHOptions,
         fem_options: FEMOptions,
+        ipc_options: IPCOptions,
         sf_options: SFOptions,
         pbd_options: PBDOptions,
     ):
@@ -98,6 +101,7 @@ class Simulator(RBC):
         self.mpm_options = mpm_options
         self.sph_options = sph_options
         self.fem_options = fem_options
+        self.ipc_options = ipc_options
         self.sf_options = sf_options
         self.pbd_options = pbd_options
 
@@ -120,6 +124,7 @@ class Simulator(RBC):
         self.pbd_solver = PBDSolver(self.scene, self, self.pbd_options)
         self.fem_solver = FEMSolver(self.scene, self, self.fem_options)
         self.sf_solver = SFSolver(self.scene, self, self.sf_options)
+        self.ipc_solver = IpcSolver(self.scene, self, self.ipc_options)
 
         self._solvers: list[Solver] = gs.List(
             [
@@ -131,6 +136,7 @@ class Simulator(RBC):
                 self.pbd_solver,
                 self.fem_solver,
                 self.sf_solver,
+                self.ipc_solver,
             ]
         )
 
@@ -175,7 +181,13 @@ class Simulator(RBC):
             entity = self.pbd_solver.add_entity(self.n_entities, material, morph, surface)
 
         elif isinstance(material, gs.materials.FEM.Base):
-            entity = self.fem_solver.add_entity(self.n_entities, material, morph, surface)
+            if getattr(self.ipc_options, "hijack_fem", False):
+                entity = self.ipc_solver.add_entity(self.n_entities, material, morph, surface)
+            else:
+                entity = self.fem_solver.add_entity(self.n_entities, material, morph, surface)
+
+        elif isinstance(material, gs.materials.IPC.Base):
+            entity = self.ipc_solver.add_entity(self.n_entities, material, morph, surface)
 
         elif isinstance(material, gs.materials.Hybrid):
             entity = HybridEntity(
