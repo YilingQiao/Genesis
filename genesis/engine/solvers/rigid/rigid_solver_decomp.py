@@ -298,6 +298,8 @@ class RigidSolver(Solver):
 
             self._init_invweight_and_meaninertia(force_update=False)
 
+            self._func_update_geoms(envs_idx=self._scene._sanitize_envs_idx(None))
+
     def _init_invweight_and_meaninertia(self, envs_idx=None, *, force_update=True, unsafe=False):
         # Early return if no DoFs. This is essential to avoid segfault on CUDA.
         if self._n_dofs == 0:
@@ -1110,6 +1112,7 @@ class RigidSolver(Solver):
             geoms_state=self.geoms_state,
             links_state=self.links_state,
             rigid_global_info=self._rigid_global_info,
+            static_rigid_sim_cache_key=self._static_rigid_sim_cache_key,
             static_rigid_sim_config=self._static_rigid_sim_config,
         )
 
@@ -5140,6 +5143,7 @@ def kernel_update_all_verts(
                 verts_info.init_pos[i_v], g_pos, g_quat
             )
         elif i_b == 0:
+            print(g_pos, g_quat, verts_info.init_pos[i_v], verts_info.geom_idx[i_v])
             fixed_verts_state.pos[verts_state_idx] = gu.ti_transform_by_trans_quat(
                 verts_info.init_pos[i_v], g_pos, g_quat
             )

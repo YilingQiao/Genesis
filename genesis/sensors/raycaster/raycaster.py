@@ -407,7 +407,7 @@ class RaycasterSensor(RigidSensorMixin, Sensor):
             self._shared_metadata.aabb = AABB(
                 n_batches=self._shared_metadata.solver.free_verts_state.pos.shape[1], n_aabbs=n_lidar_faces
             )
-
+            print(self._shared_metadata.solver.geoms_state.quat.to_numpy())
             rigid_solver_decomp.kernel_update_all_verts(
                 geoms_state=self._shared_metadata.solver.geoms_state,
                 verts_info=self._shared_metadata.solver.verts_info,
@@ -415,6 +415,7 @@ class RaycasterSensor(RigidSensorMixin, Sensor):
                 fixed_verts_state=self._shared_metadata.solver.fixed_verts_state,
             )
 
+            # print("self._shared_metadata.solver.fixed_verts_state", self._shared_metadata.solver.fixed_verts_state.pos.to_numpy())
             kernel_update_aabbs(
                 map_lidar_faces=self._shared_metadata.map_lidar_faces,
                 free_verts_state=self._shared_metadata.solver.free_verts_state,
@@ -423,6 +424,8 @@ class RaycasterSensor(RigidSensorMixin, Sensor):
                 faces_info=self._shared_metadata.solver.faces_info,
                 aabb_state=self._shared_metadata.aabb,
             )
+            # print("update aabbs", self._shared_metadata.aabb.aabbs)
+            # from IPython import embed; embed()
             self._shared_metadata.bvh = LBVH(self._shared_metadata.aabb)
             self._shared_metadata.bvh.build()
 
