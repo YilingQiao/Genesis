@@ -254,50 +254,24 @@ def test_rigid_tactile_sensors_gravity_force(show_viewer, tol, n_envs):
 @pytest.mark.parametrize("n_envs", [0, 2])
 def test_raycaster_hits(show_viewer, tol, n_envs):
     """Test if the Raycaster sensor with GridPattern rays pointing to ground returns the correct distance."""
-    EXPECTED_DISTANCE = 1.2
     NUM_RAYS_XY = 3
-    BOX_HEIGHT = 0.2
     SPHERE_POS = (4.0, 0.0, 1.0)
-    RAYCAST_GRID_SIZE = 0.5
+    BOX_SIZE = 0.05
+    RAYCAST_BOX_SIZE = 0.1
+    RAYCAST_GRID_SIZE = 1.0
+    RAYCAST_HEIGHT = 1.0
 
     scene = gs.Scene(
-        profiling_options=gs.options.ProfilingOptions(show_FPS=False),
+        profiling_options=gs.options.ProfilingOptions(
+            show_FPS=False,
+        ),
         show_viewer=show_viewer,
     )
-
     scene.add_entity(gs.morphs.Plane())
-
-    box_obstacle = scene.add_entity(
-        gs.morphs.Box(
-            size=(RAYCAST_GRID_SIZE / 2.0, RAYCAST_GRID_SIZE / 2.0, BOX_HEIGHT),
-            # pos=(0.0, 0.0, -BOX_HEIGHT),  # init below ground to not interfere with first raycast
-            pos=(RAYCAST_GRID_SIZE, RAYCAST_GRID_SIZE, EXPECTED_DISTANCE / 2.0 + BOX_HEIGHT / 2.0),
-        ),
-    )
-    grid_sensor_box = scene.add_entity(
-        gs.morphs.Box(
-            size=(0.1, 0.1, 0.1),
-            pos=(0.0, 0.0, EXPECTED_DISTANCE + BOX_HEIGHT),
-            fixed=True,
-        ),
-    )
-    grid_raycaster = scene.add_sensor(
-        gs.sensors.Raycaster(
-            pattern=gs.sensors.raycaster.GridPattern(
-                resolution=1.0 / (NUM_RAYS_XY - 1.0),
-                size=(1.0, 1.0),
-                direction=(0.0, 0.0, -1.0),  # pointing downwards to ground
-            ),
-            entity_idx=grid_sensor_box.idx,
-            pos_offset=(0.0, 0.0, -BOX_HEIGHT),
-            return_world_frame=True,
-            draw_debug=True,
-        )
-    )
 
     spherical_sensor = scene.add_entity(
         gs.morphs.Sphere(
-            radius=EXPECTED_DISTANCE,
+            radius=RAYCAST_HEIGHT,
             pos=SPHERE_POS,
             fixed=True,
         ),
@@ -309,41 +283,102 @@ def test_raycaster_hits(show_viewer, tol, n_envs):
             ),
             entity_idx=spherical_sensor.idx,
             return_world_frame=False,
+            draw_debug=show_viewer,
+            debug_ray_start_color=(0.0, 0.0, 0.0, 0.0),
+            debug_ray_hit_color=(1.0, 0.0, 0.0, 1.0),
         )
     )
 
+    grid_sensor = scene.add_entity(
+        gs.morphs.Box(
+            size=(RAYCAST_BOX_SIZE, RAYCAST_BOX_SIZE, RAYCAST_BOX_SIZE),
+            pos=(0.0, 0.0, RAYCAST_HEIGHT + 0.5 * RAYCAST_BOX_SIZE),
+            collision=False,
+            fixed=True,
+        ),
+    )
+    grid_res = RAYCAST_GRID_SIZE / (NUM_RAYS_XY - 1)
+    grid_raycaster = scene.add_sensor(
+        gs.sensors.Raycaster(
+            pattern=gs.sensors.raycaster.GridPattern(
+                resolution=grid_res,
+                size=(1.0, 1.0),
+                direction=(0.0, 0.0, -1.0),  # pointing downwards to ground
+            ),
+            entity_idx=grid_sensor.idx,
+            pos_offset=(0.0, 0.0, -0.5 * RAYCAST_BOX_SIZE),
+            return_world_frame=True,
+            draw_debug=show_viewer,
+            debug_ray_start_color=(0.0, 0.0, 0.0, 0.0),
+            debug_ray_hit_color=(0.0, 1.0, 0.0, 1.0),
+        )
+    )
+    obstacle_1 = scene.add_entity(
+        gs.morphs.Box(
+            size=(BOX_SIZE, BOX_SIZE, BOX_SIZE),
+            pos=(grid_res, grid_res, 0.5 * BOX_SIZE),
+        ),
+    )
+    obstacle_2 = scene.add_entity(
+        gs.morphs.Box(
+            size=(BOX_SIZE, BOX_SIZE, BOX_SIZE),
+            pos=(RAYCAST_GRID_SIZE, RAYCAST_GRID_SIZE, RAYCAST_HEIGHT + RAYCAST_BOX_SIZE + BOX_SIZE),
+        ),
+    )
+
+    # Build the simulation and do one step
     scene.build(n_envs=n_envs)
-
-    scene.step()
-
-    grid_hits = grid_raycaster.read().points
-    grid_distances = grid_raycaster.read().distances
-    spherical_distances = spherical_raycaster.read().distances
-
     expected_shape = (NUM_RAYS_XY, NUM_RAYS_XY) if n_envs == 0 else (n_envs, NUM_RAYS_XY, NUM_RAYS_XY)
-    assert grid_distances.shape == spherical_distances.shape == expected_shape
 
-    grid_distance_min = grid_distances.min()
-    assert grid_distances.min() < EXPECTED_DISTANCE - tol, "Raycaster grid pattern should have hit obstacle"
-    ground_hit_mask = grid_distances > grid_distance_min + tol
-    grid_hits = grid_hits[ground_hit_mask]
-    grid_distances = grid_distances[ground_hit_mask]
+    # Validate grid raycast
+    # TODO: Check use different (global) offset positions for each environments
+    for obstacle_pos, sensor_pos, hit_ij in (
+        (None, None, (-1, -1)),
+        ((grid_res, grid_res, BOX_SIZE), None, (-1, -1)),
+        (None, (RAYCAST_GRID_SIZE, RAYCAST_GRID_SIZE, RAYCAST_HEIGHT + 0.5 * RAYCAST_BOX_SIZE), (0, 0)),
+    ):
+        # Update obstacle and/or sensor position if necessary
+        if obstacle_pos is not None:
+            obstacle_1.set_pos(obstacle_pos)
+        obstacle_pos = obstacle_1.get_pos()
+        if sensor_pos is not None:
+            grid_sensor.set_pos(sensor_pos)
+        scene.sim._sensor_manager.step()
+        if show_viewer:
+            scene.visualizer.update(force=True)
 
-    assert_allclose(
-        grid_hits[..., 2],
-        0.0,
-        tol=tol,
-        err_msg="Raycaster grid pattern should hit ground (z≈0)",
-    )
-    assert_allclose(
-        grid_distances,
-        EXPECTED_DISTANCE,
-        tol=tol,
-        err_msg=f"Raycaster grid pattern should measure {EXPECTED_DISTANCE}m to ground plane",
-    )
-    assert_allclose(
-        spherical_distances,
-        EXPECTED_DISTANCE,
-        tol=1e-2,  # since sphere mesh is discretized, we need a larger tolerance here
-        err_msg=f"Raycaster spherical pattern should measure {EXPECTED_DISTANCE}m to the sphere around it",
-    )
+        # Fetch updated sensor data
+        grid_hits = grid_raycaster.read().points
+        grid_distances = grid_raycaster.read().distances
+        assert grid_distances.shape == expected_shape
+
+        # Check hits
+        grid_sensor_origin = grid_sensor.get_pos()
+        x = torch.linspace(-0.5, 0.5, NUM_RAYS_XY) + grid_sensor_origin[..., 0]
+        y = torch.linspace(-0.5, 0.5, NUM_RAYS_XY) + grid_sensor_origin[..., 1]
+        xg, yg = torch.meshgrid(x, y, indexing="xy")
+        zg = torch.zeros((NUM_RAYS_XY, NUM_RAYS_XY))
+        zg[hit_ij] = obstacle_pos[..., 2] + 0.5 * BOX_SIZE
+        grid_hits_ref = np.stack([xg, yg, zg], axis=-1)
+        assert_allclose(grid_hits, grid_hits_ref, tol=gs.EPS)
+
+        # Check distances
+        grid_distances_ref = torch.full((NUM_RAYS_XY, NUM_RAYS_XY), RAYCAST_HEIGHT)
+        grid_distances_ref[hit_ij] = RAYCAST_HEIGHT - obstacle_pos[..., 2] - 0.5 * BOX_SIZE
+        assert_allclose(grid_distances, grid_distances_ref, tol=gs.EPS)
+
+    # Validate spherical raycast
+    spherical_distances = spherical_raycaster.read().distances
+    assert spherical_distances.shape == expected_shape
+    # Note that the tolerance must be large bevcause the sphere geometry is discretized
+    assert_allclose(spherical_distances, RAYCAST_HEIGHT, tol=5e-3)
+
+    # Simulate for a while and check again that the ray is casted properly
+    for _ in range(100):
+        scene.step()
+
+    grid_distances = grid_raycaster.read().distances
+    grid_distances_ref = torch.full((NUM_RAYS_XY, NUM_RAYS_XY), RAYCAST_HEIGHT)
+    grid_distances_ref[(NUM_RAYS_XY - 1) // 2, (NUM_RAYS_XY - 1) // 2] = RAYCAST_HEIGHT - BOX_SIZE
+    grid_distances_ref[hit_ij] = RAYCAST_HEIGHT - BOX_SIZE
+    assert_allclose(grid_distances, grid_distances_ref, tol=1e-3)
