@@ -503,6 +503,7 @@ class RaycasterSensor(RigidSensorMixin, Sensor):
             faces_info=shared_metadata.solver.faces_info,
             aabb_state=shared_metadata.aabb,
         )
+        shared_metadata.bvh.build()
 
         links_pos = shared_metadata.solver.get_links_pos(links_idx=shared_metadata.links_idx)
         links_quat = shared_metadata.solver.get_links_quat(links_idx=shared_metadata.links_idx)
