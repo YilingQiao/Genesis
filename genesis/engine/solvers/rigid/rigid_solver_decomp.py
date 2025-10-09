@@ -5105,8 +5105,8 @@ def func_update_verts_for_geom(
             geoms_state.verts_updated[i_g, i_b] = True
 
 
-@ti.func
-def func_update_all_verts(
+@ti.kernel
+def kernel_update_all_verts(
     geoms_state: array_class.GeomsState,
     verts_info: array_class.VertsInfo,
     free_verts_state: array_class.VertsState,
