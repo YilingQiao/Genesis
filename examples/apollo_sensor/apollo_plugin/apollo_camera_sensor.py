@@ -104,6 +104,7 @@ class ApolloCameraOptions(RigidSensorOptionsMixin, SensorOptions):
 
     # Override to make entity_idx optional for static cameras
     entity_idx: Optional[int] = None
+    lights: list[dict] = []
     fov: float = 60.0
     GUI: bool = True
     spp: int = 16
@@ -140,6 +141,11 @@ class ApolloCameraOptions(RigidSensorOptionsMixin, SensorOptions):
             gs.raise_exception("lookat must be a (x, y, z) tuple")
         if not (isinstance(self.up, (tuple, list)) and len(self.up) == 3):
             gs.raise_exception("up must be a (x, y, z) tuple")
+        if not isinstance(self.lights, list):
+            gs.raise_exception(f"lights must be a list, got: {type(self.lights)}")
+        for i, light in enumerate(self.lights):
+            if not isinstance(light, dict):
+                gs.raise_exception(f"lights[{i}] must be a dict, got: {type(light)}")
         # Must have at least one light and one non-debug camera for meaningful rendering, but we allow building to proceed
         # so the user can add them before the first render call.
         return None
@@ -267,9 +273,13 @@ class ApolloCameraSensor(gs.engine.sensors.camera.BaseCameraSensor):
         self._camera_idx = len(self._shared_metadata.sensors)
         self._shared_metadata.sensors.append(self)
 
-        # Initialize shared lights container
+        # Initialize shared lights container and add lights from options
         if self._shared_metadata.lights is None:
             self._shared_metadata.lights = gs.List()
+
+        # Add lights from options to shared metadata
+        for light_config in self._options.lights:
+            self._add_light_to_apollo(light_config)
 
         # Initialize and register camera definition for exporter
         if self._shared_metadata.camera_defs is None:
@@ -380,33 +390,6 @@ class ApolloCameraSensor(gs.engine.sensors.camera.BaseCameraSensor):
         self._shared_metadata.image_cache = None
 
     # --------------------------------------- Lights ---------------------------------------
-    def add_light(
-        self,
-        pos,
-        dir=(0.0, 0.0, -1.0),  # Default downward direction
-        color=(1.0, 1.0, 1.0),
-        intensity=1.0,
-        directional=True,
-        castshadow=True,
-        cutoff=45.0,
-        attenuation=(1.0, 0.0, 0.0),
-    ):
-        """Add a light affecting Apollo rendering. Stored in shared metadata and exported with the scene."""
-        if self._shared_metadata.lights is None:
-            self._shared_metadata.lights = gs.List()
-        self._shared_metadata.lights.append(
-            Light(
-                pos,
-                dir,
-                color,
-                intensity,
-                directional,
-                castshadow,
-                cutoff,
-                attenuation,
-            )
-        )
-        return self
 
     # -------------------------------------- Helpers ---------------------------------------
 
@@ -476,3 +459,28 @@ class ApolloCameraSensor(gs.engine.sensors.camera.BaseCameraSensor):
         camera_pos = camera_pos.unsqueeze(0)
         camera_quat = camera_quat.unsqueeze(0)
         return camera_pos.cpu().numpy(), camera_quat.cpu().numpy()
+
+    def _add_light_to_apollo(self, light_config):
+        """Add a light to Apollo shared metadata."""
+        # Default values for Apollo lights
+        pos = light_config.get("pos", (0.0, 0.0, 5.0))
+        dir = light_config.get("dir", (0.0, 0.0, -1.0))
+        color = light_config.get("color", (1.0, 1.0, 1.0))
+        intensity = light_config.get("intensity", 1.0)
+        directional = light_config.get("directional", True)
+        castshadow = light_config.get("castshadow", True)
+        cutoff = light_config.get("cutoff", 45.0)
+        attenuation = light_config.get("attenuation", (1.0, 0.0, 0.0))
+
+        self._shared_metadata.lights.append(
+            Light(
+                pos,
+                dir,
+                color,
+                intensity,
+                directional,
+                castshadow,
+                cutoff,
+                attenuation,
+            )
+        )
