@@ -108,59 +108,90 @@ CAMERA_COMMON_KWARGS = dict(
 )
 
 CAMERA_SENSORS_KWARGS = [
-    (
-        "cam0",
-        (3.0, 0.0, 2.0),
-        (0.0, 0.0, 1.0),
-        60.0,
-        None,  # No attachment
-        [{"pos": (2.0, 2.0, 5.0), "color": (1.0, 1.0, 1.0), "intensity": 0.5}],
-    ),
-    ("cam1", (0.0, 1.0, 12.0), (0.0, 0.0, 1.0), 60.0, None, []),
-    (
-        "cam_attached",
-        (0.0, 0.0, 1.0),
-        (0.0, 0.0, 0.0),
-        70.0,
-        {"entity_idx": None, "link_idx_local": 0, "pos_offset": (0.0, 0.0, 0.0), "euler_offset": (0.0, 0.0, 0.0)},
-        [],
-    ),
+    {
+        "name": "cam0",
+        "pos": (3.0, 0.0, 2.0),
+        "lookat": (0.0, 0.0, 1.0),
+        "fov": 60.0,
+        "attachment": None,  # No attachment
+        "lights": [{"pos": (2.0, 2.0, 5.0), "color": (1.0, 1.0, 1.0), "intensity": 0.5}],
+    },
+    {
+        "name": "cam1",
+        "pos": (0.0, 1.0, 12.0),
+        "lookat": (0.0, 0.0, 1.0),
+        "fov": 60.0,
+        "attachment": None,
+        "lights": [],
+    },
+    {
+        "name": "cam_attached",
+        "pos": (0.0, 0.0, 1.0),
+        "lookat": (0.0, 0.0, 0.0),
+        "fov": 70.0,
+        "attachment": {
+            "entity_idx": None,
+            "link_idx_local": 0,
+            "pos_offset": (0.0, 0.0, 0.0),
+            "euler_offset": (0.0, 0.0, 0.0),
+        },
+        "lights": [],
+    },
 ]
 
 
-def create_camera_configs(backend_name, options_class, sphere_entity_idx=None, **backend_specific):
-    """Create camera configurations for a specific backend."""
+# Create camera configurations for all backends
+backends = [
+    ("raster", RasterizerCameraOptions, True),  # Always enabled
+    ("raytrace", RaytracerCameraOptions, ENABLE_RAYTRACER),
+    ("batch", BatchRendererCameraOptions, ENABLE_MADRONA),
+    ("apollo", ApolloCameraOptions, ENABLE_APOLLO),
+]
+
+backend_configs = {}
+for backend_name, options_class, enabled in backends:
+    if not enabled:
+        continue
+
     configs = []
-    for cam_suffix, pos, lookat, fov, attachment, lights in CAMERA_SENSORS_KWARGS:
-        name = f"{backend_name}_{cam_suffix}"
+    for camera_config in CAMERA_SENSORS_KWARGS:
+        name = f"{backend_name}_{camera_config['name']}"
         res = (500, 600)
 
         # Create options with common and backend-specific parameters
         options_kwargs = {
             "res": res,
-            "pos": pos,
-            "lookat": lookat,
+            "pos": camera_config["pos"],
+            "lookat": camera_config["lookat"],
             "up": CAMERA_COMMON_KWARGS["up"],
-            "fov": fov,
-            "lights": lights,
-            **backend_specific,
+            "fov": camera_config["fov"],
+            "lights": camera_config["lights"],
         }
 
+        # Add backend-specific parameters first (before attachment)
+        if backend_name == "apollo":
+            options_kwargs.update(
+                {
+                    "app_mode": "batch_render",
+                    "render_mode": "forward",
+                    "update_ground_truth_only": False,
+                    "scene_description_export_path": "apollo_scene.json",
+                    "capture_animation": True,
+                }
+            )
+
         # Handle attachment
+        attachment = camera_config["attachment"]
         if attachment is not None:
             # For attached cameras, set the entity_idx to the sphere's index
-            if sphere_entity_idx is not None:
-                options_kwargs.update(
-                    {
-                        "entity_idx": sphere_entity_idx,
-                        "link_idx_local": attachment["link_idx_local"],
-                        "pos_offset": attachment["pos_offset"],
-                        "euler_offset": attachment["euler_offset"],
-                    }
-                )
-            else:
-                # If sphere_entity_idx is not provided, create as static camera
-                pass
+            options_kwargs.update(
+                {
+                    "entity_idx": sphere.idx,
+                    "link_idx_local": attachment["link_idx_local"],
+                    "pos_offset": attachment["pos_offset"],
+                    "euler_offset": attachment["euler_offset"],
+                }
+            )
 
         # Add backend-specific parameters
         if backend_name == "raster":
@@ -184,65 +215,39 @@ def create_camera_configs(backend_name, options_class, sphere_entity_idx=None, *
                 )
         elif backend_name == "batch":
             options_kwargs.update({"use_rasterizer": True})
-            # Adjust lights for batch renderer
-            if lights:
-                adjusted_lights = [{**light, "directional": False} for light in lights]
-                lights = adjusted_lights
+            if camera_config["lights"]:
+                adjusted_lights = [{**light, "directional": False} for light in camera_config["lights"]]
+                options_kwargs["lights"] = adjusted_lights
 
         # Adjust lights for raytracer and apollo (different intensity/color)
-        if backend_name == "raytrace" and lights:
-            adjusted_lights = [{**light, "color": (10.0, 10.0, 10.0), "intensity": 1.0} for light in lights]
-            lights = adjusted_lights
-        elif backend_name == "apollo" and lights:
+        if backend_name == "raytrace" and camera_config["lights"]:
+            adjusted_lights = [
+                {**light, "color": (10.0, 10.0, 10.0), "intensity": 1.0} for light in camera_config["lights"]
+            ]
+            options_kwargs["lights"] = adjusted_lights
+        elif backend_name == "apollo" and camera_config["lights"]:
             # Apollo may need similar light adjustments as raytracer for consistency
-            adjusted_lights = [{**light, "color": (10.0, 10.0, 10.0), "intensity": 0.2} for light in lights]
-            lights = adjusted_lights
+            adjusted_lights = [
+                {**light, "color": (10.0, 10.0, 10.0), "intensity": 0.2} for light in camera_config["lights"]
+            ]
+            options_kwargs["lights"] = adjusted_lights
 
         options = options_class(**options_kwargs)
         configs.append(
             {
                 "name": name,
                 "options": options,
-                "attachment": attachment,
+                "attachment": camera_config["attachment"],
             }
         )
 
-    return configs
-
-
-# Create configurations for each backend
-rasterizer_configs = create_camera_configs("raster", RasterizerCameraOptions, sphere_entity_idx=sphere.idx)
-raytracer_configs = (
-    create_camera_configs("raytrace", RaytracerCameraOptions, sphere_entity_idx=sphere.idx) if ENABLE_RAYTRACER else []
-)
-batch_renderer_configs = (
-    create_camera_configs("batch", BatchRendererCameraOptions, sphere_entity_idx=sphere.idx) if ENABLE_MADRONA else []
-)
-apollo_configs = (
-    create_camera_configs(
-        "apollo",
-        ApolloCameraOptions,
-        sphere_entity_idx=sphere.idx,
-        app_mode="batch_render",
-        render_mode="forward",
-        update_ground_truth_only=False,
-        scene_description_export_path="apollo_scene.json",
-        capture_animation=True,
-    )
-    if ENABLE_APOLLO
-    else []
-)
+    backend_configs[backend_name] = configs
 
 ########################## Create Cameras ##########################
 cameras = {}
-config_groups = []
-config_groups += [("Rasterizer", rasterizer_configs)] if rasterizer_configs else []
-config_groups += [("Raytracer", raytracer_configs)] if raytracer_configs else []
-config_groups += [("Batch Renderer", batch_renderer_configs)] if batch_renderer_configs else []
-config_groups += [("Apollo", apollo_configs)] if apollo_configs else []
 
-for group_name, configs in config_groups:
-    print(f"\n=== {group_name} Cameras ===")
+for group_name, configs in backend_configs.items():
+    print(f"\n=== {group_name.title()} Cameras ===")
     for config in configs:
         camera = scene.add_sensor(config["options"])
         cameras[config["name"]] = camera
@@ -259,7 +264,7 @@ print("\n=== Identifying Attached Cameras ===")
 
 # Identify cameras that are configured to be attached
 attached_cameras = []
-for group_name, configs in config_groups:
+for group_name, configs in backend_configs.items():
     for config in configs:
         if config["attachment"] is not None:
             camera = cameras[config["name"]]
@@ -270,8 +275,6 @@ print(f"✓ Identified {len(attached_cameras)} attached cameras")
 
 ########################## simulate and render ##########################
 print("\n=== Simulation Loop ===")
-
-
 os.makedirs("camera_sensor_output", exist_ok=True)
 
 
@@ -313,48 +316,3 @@ for i in range(100):
             suffix = "_env0" if n_envs > 1 else ""
             filename = f"camera_sensor_output/{cam_name}{suffix}_step{i:03d}.png"
             plt.imsave(filename, to_numpy_for_save(rgb_data))
-
-        if i == 0:
-            print("\n✓ Saving images to camera_sensor_output/")
-        if i == 50:
-            print("✓ Saved detachment frame")
-
-print("\n=== Simulation Complete ===")
-print("✓ Backend renderers tested successfully!")
-
-# Count cameras by type
-raster_static = len([c for c in rasterizer_configs if c["attachment"] is None])
-raster_attached = len([c for c in rasterizer_configs if c["attachment"] is not None])
-print(f"  - Rasterizer: Fast OpenGL rendering ({raster_static} static + {raster_attached} attached cameras) ✓")
-
-if raytracer_configs:
-    raytracer_static = len([c for c in raytracer_configs if c["attachment"] is None])
-    raytracer_attached = len([c for c in raytracer_configs if c["attachment"] is not None])
-    print(
-        f"  - Raytracer: High-quality path tracing ({raytracer_static} static + {raytracer_attached} attached cameras) ✓"
-    )
-else:
-    print("  - Raytracer: Disabled (LuisaRenderPy not available)")
-
-if batch_renderer_configs:
-    batch_static = len([c for c in batch_renderer_configs if c["attachment"] is None])
-    batch_attached = len([c for c in batch_renderer_configs if c["attachment"] is not None])
-    print(
-        f"  - BatchRenderer: Efficient multi-camera batched rendering ({batch_static} static + {batch_attached} attached cameras) ✓"
-    )
-else:
-    print("  - BatchRenderer: Disabled (gs_madrona not available)")
-
-if apollo_configs:
-    apollo_static = len([c for c in apollo_configs if c["attachment"] is None])
-    apollo_attached = len([c for c in apollo_configs if c["attachment"] is not None])
-    print(
-        f"  - Apollo: Advanced GPU-accelerated rendering ({apollo_static} static + {apollo_attached} attached cameras) ✓"
-    )
-else:
-    print("  - Apollo: Disabled (gs_apollo or plugin not available)")
-
-print(f"\n✓ Images saved to camera_sensor_output/")
-print(f"  - Tested attachment functionality ({len(attached_cameras)} cameras attached to moving sphere)")
-print("  - Attached cameras follow sphere movement throughout simulation")
-print("  - Compare the rendering quality across all available backends!")
