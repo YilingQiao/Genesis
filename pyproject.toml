@@ -74,6 +74,8 @@ dev = [
     "pytest-print",
     # - 16.0 is causing pytest-xdist to crash in case of failure or skipped tests
     "pytest-rerunfailures!=16.0",
+    "pytest-cov",  # Code coverage reporting
+    "coverage[toml]>=7.0",  # Coverage with TOML config support
     "setproctitle", # allows renaming the test processes on the cluster
     "syrupy",
     "huggingface_hub[hf_xet]",
@@ -179,3 +181,43 @@ markers = [
     "slow: tests that are slow to run (> 100s).",
 ]
 log_cli_level = "WARNING"
+
+[tool.coverage.run]
+source = ["genesis"]
+branch = true
+parallel = true
+# Omit JIT-compiled code paths (coverage cannot instrument these)
+omit = [
+    "genesis/ext/*",
+    "*/__pycache__/*",
+]
+# Required for pytest-xdist parallel test execution
+concurrency = ["multiprocessing", "thread"]
+# Store coverage data in a dedicated directory
+data_file = ".coverage_data/.coverage"
+
+[tool.coverage.paths]
+# Map different source paths (useful for parallel workers)
+source = ["genesis/", "*/genesis/"]
+
+[tool.coverage.report]
+# Exclude lines that cannot be covered (JIT kernels, abstract methods, etc.)
+exclude_lines = [
+    "pragma: no cover",
+    "raise NotImplementedError",
+    "if TYPE_CHECKING:",
+    "@ti.kernel",
+    "@ti.func",
+    "if __name__ == .__main__.:",
+]
+show_missing = true
+precision = 2
+# Skip files with no executable code
+skip_empty = true
+
+[tool.coverage.html]
+directory = "coverage_html"
+title = "Genesis Code Coverage Report"
+
+[tool.coverage.xml]
+output = "coverage.xml"
