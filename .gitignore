@@ -150,3 +150,11 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+.gaac*local*
+coverage.json
+kernel_coverage*.json
+coverage_report*/
+debug/
+workspace/
+.claude/
+CLAUDE.md
