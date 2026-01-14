@@ -4,79 +4,102 @@ Regression test for kernel coverage accumulation across multiple gs.init/gs.dest
 This test verifies that kernel coverage correctly accumulates when tests run multiple
 init/destroy cycles, which is the normal pattern when using the initialize_genesis fixture.
 
+IMPORTANT: This test requires the --kernel-coverage flag to run.
 Run with: pytest tests/coverage/test_kernel_coverage_accumulation.py --kernel-coverage -n 0
 """
 
 import pytest
 
 
-# Use backend=None to skip the autouse initialize_genesis fixture
-# This test manages its own init/destroy cycles
-@pytest.mark.parametrize("backend", [None])
-def test_kernel_coverage_accumulates_across_cycles(backend):
+# Module-local fixture to override the autouse initialize_genesis fixture.
+# Returning None causes initialize_genesis to yield early without initializing Genesis.
+@pytest.fixture
+def backend():
+    """Override the backend fixture to skip initialize_genesis."""
+    return None
+
+
+def test_kernel_coverage_accumulates_across_cycles(pytestconfig, backend):
     """
     Verify kernel coverage accumulates across multiple gs.init/gs.destroy cycles.
 
     This is a regression test for the fix in Round 2 where _collection_complete
     was blocking collection after the first destroy.
+
+    Uses minimal Genesis scenes to exercise actual kernel execution through the
+    patched gstaichi.init path that enables kernel profiling.
     """
+    # Skip if --kernel-coverage is not enabled (plugin won't be active)
+    if not pytestconfig.getoption("--kernel-coverage", default=False):
+        pytest.skip("This test requires --kernel-coverage flag")
+
+    import genesis as gs
+
     from tests.coverage.kernel_coverage import get_tracker
 
     # Get the global tracker (same one used by conftest_plugin)
     tracker = get_tracker()
 
-    # Record initial state
-    initial_count = len(tracker._executed_kernels)
+    # Record initial state (copy the set to compare later)
+    initial_kernels = set(tracker._executed_kernels)
 
-    # First cycle: init, run a kernel, destroy
-    import genesis as gs
-
+    # First cycle: init with kernel profiler (via patched gstaichi.init), run minimal scene
     gs.init(backend=gs.cpu, seed=0)
 
-    # Create a simple scene that will execute some kernels
-    scene = gs.Scene(show_viewer=False)
-    scene.add_entity(gs.morphs.Box(size=(0.1, 0.1, 0.1), pos=(0, 0, 0.5)))
-    scene.build()
+    # Create minimal scene that executes some kernels
+    scene1 = gs.Scene(show_viewer=False)
+    scene1.add_entity(gs.morphs.Box(size=(0.1, 0.1, 0.1), pos=(0, 0, 0.5)))
+    scene1.build()
 
-    # Step the simulation to execute kernels
-    for _ in range(5):
-        scene.step()
+    # Single step is enough to execute kernels
+    scene1.step()
 
     gs.destroy()
 
-    # Check that kernels were collected in first cycle
-    after_first_cycle = len(tracker._executed_kernels)
-    assert after_first_cycle > initial_count, (
-        f"First cycle should collect kernels: initial={initial_count}, after={after_first_cycle}"
+    # Snapshot kernels after first cycle
+    first_cycle_kernels = set(tracker._executed_kernels)
+
+    # Verify first cycle collected new kernels
+    new_in_first = first_cycle_kernels - initial_kernels
+    assert len(new_in_first) > 0, (
+        f"First cycle should collect new kernels. "
+        f"Initial: {len(initial_kernels)}, After first: {len(first_cycle_kernels)}"
     )
 
-    # Second cycle: init, run different operations, destroy
+    # Second cycle: init again, run different scene configuration
     gs.init(backend=gs.cpu, seed=1)
 
-    # Create a different scene configuration
+    # Create a different scene with Plane (potentially different kernels)
     scene2 = gs.Scene(show_viewer=False)
-    # Add multiple entities to potentially trigger different kernels
-    plane = scene2.add_entity(gs.morphs.Plane())
-    box1 = scene2.add_entity(gs.morphs.Box(size=(0.1, 0.1, 0.1), pos=(0, 0, 1)))
-    box2 = scene2.add_entity(gs.morphs.Box(size=(0.1, 0.1, 0.1), pos=(0.5, 0, 2)))
+    scene2.add_entity(gs.morphs.Plane())
+    scene2.add_entity(gs.morphs.Box(size=(0.1, 0.1, 0.1), pos=(0, 0, 1)))
     scene2.build()
 
-    # Run more steps
-    for _ in range(10):
+    # Run a few steps
+    for _ in range(3):
         scene2.step()
 
     gs.destroy()
 
-    # Check that kernels accumulated (should be >= first cycle, likely more)
-    after_second_cycle = len(tracker._executed_kernels)
-    assert after_second_cycle >= after_first_cycle, (
-        f"Second cycle should maintain or increase kernel count: "
-        f"after_first={after_first_cycle}, after_second={after_second_cycle}"
+    # Snapshot kernels after second cycle
+    second_cycle_kernels = set(tracker._executed_kernels)
+
+    # Strict growth assertion: first cycle's kernels must be a subset of second cycle's
+    # (accumulation means we never lose kernels)
+    assert first_cycle_kernels.issubset(second_cycle_kernels), (
+        f"Kernel set should accumulate (first cycle should be subset of second). "
+        f"First cycle kernels not in second: {first_cycle_kernels - second_cycle_kernels}"
+    )
+
+    # Verify the second cycle added at least some new kernels OR maintained all
+    # (The key test is that we didn't LOSE any kernels - that would indicate reset)
+    assert len(second_cycle_kernels) >= len(first_cycle_kernels), (
+        f"Kernel count should not decrease. First: {len(first_cycle_kernels)}, Second: {len(second_cycle_kernels)}"
     )
 
     # Log results for verification
     print("\nKernel coverage accumulation test:")
-    print(f"  Initial:       {initial_count} kernels")
-    print(f"  After cycle 1: {after_first_cycle} kernels")
-    print(f"  After cycle 2: {after_second_cycle} kernels")
-    print(f"  Accumulated:   {after_second_cycle - initial_count} new kernels")
+    print(f"  Initial:          {len(initial_kernels)} kernels")
+    print(f"  After cycle 1:    {len(first_cycle_kernels)} kernels (+{len(new_in_first)})")
+    print(f"  After cycle 2:    {len(second_cycle_kernels)} kernels")
+    print(f"  First subset of second: {first_cycle_kernels.issubset(second_cycle_kernels)}")
