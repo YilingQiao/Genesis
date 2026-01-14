@@ -26,8 +26,15 @@ def test_kernel_coverage_accumulates_across_cycles(pytestconfig, backend):
     This is a regression test for the fix in Round 2 where _collection_complete
     was blocking collection after the first destroy.
 
-    Uses minimal Genesis scenes to exercise actual kernel execution through the
-    patched gstaichi.init path that enables kernel profiling.
+    Test design (per Codex reviews):
+    1. Clear tracker baseline to isolate from prior tests
+    2. Run cycle 1 with Box scene - verify kernels collected
+    3. Run cycle 2 with Plane scene - verify NEW kernels collected
+    4. The strict growth assertion catches the original regression
+
+    Determinism: By clearing baseline and using different scene configurations,
+    we guarantee that each cycle executes different kernels. The Plane morph
+    triggers SAP collision detection kernels not used with Box-only scenes.
     """
     # Skip if --kernel-coverage is not enabled (plugin won't be active)
     if not pytestconfig.getoption("--kernel-coverage", default=False):
@@ -40,18 +47,22 @@ def test_kernel_coverage_accumulates_across_cycles(pytestconfig, backend):
     # Get the global tracker (same one used by conftest_plugin)
     tracker = get_tracker()
 
-    # Record initial state (copy the set to compare later)
-    initial_kernels = set(tracker._executed_kernels)
+    # ISOLATION: Clear tracker baseline to ensure test is independent of prior runs
+    tracker._executed_kernels.clear()
+    tracker._collection_complete = False
 
-    # First cycle: init with kernel profiler (via patched gstaichi.init), run minimal scene
+    # Record baseline (should be empty now)
+    initial_kernels = set(tracker._executed_kernels)
+    assert len(initial_kernels) == 0, "Tracker should be cleared at test start"
+
+    # =========================================================================
+    # CYCLE 1: Box-only scene (triggers basic rigid body kernels)
+    # =========================================================================
     gs.init(backend=gs.cpu, seed=0)
 
-    # Create minimal scene that executes some kernels
     scene1 = gs.Scene(show_viewer=False)
     scene1.add_entity(gs.morphs.Box(size=(0.1, 0.1, 0.1), pos=(0, 0, 0.5)))
     scene1.build()
-
-    # Single step is enough to execute kernels
     scene1.step()
 
     gs.destroy()
@@ -59,24 +70,24 @@ def test_kernel_coverage_accumulates_across_cycles(pytestconfig, backend):
     # Snapshot kernels after first cycle
     first_cycle_kernels = set(tracker._executed_kernels)
 
-    # Verify first cycle collected new kernels
-    new_in_first = first_cycle_kernels - initial_kernels
-    assert len(new_in_first) > 0, (
-        f"First cycle should collect new kernels. "
-        f"Initial: {len(initial_kernels)}, After first: {len(first_cycle_kernels)}"
-    )
+    # ASSERTION 1: First cycle must collect kernels
+    assert len(first_cycle_kernels) > 0, f"First cycle should collect kernels. Got: {len(first_cycle_kernels)}"
 
-    # Second cycle: init again, run different scene configuration
+    # =========================================================================
+    # CYCLE 2: Plane scene with collision (triggers different kernels)
+    # The Plane morph triggers SAP collision detection kernels that Box alone doesn't
+    # =========================================================================
     gs.init(backend=gs.cpu, seed=1)
 
-    # Create a different scene with Plane (potentially different kernels)
     scene2 = gs.Scene(show_viewer=False)
+    # Plane triggers collision detection kernels
     scene2.add_entity(gs.morphs.Plane())
+    # Box falling onto plane ensures collision kernels execute
     scene2.add_entity(gs.morphs.Box(size=(0.1, 0.1, 0.1), pos=(0, 0, 1)))
     scene2.build()
 
-    # Run a few steps
-    for _ in range(3):
+    # Multiple steps to ensure collision occurs
+    for _ in range(5):
         scene2.step()
 
     gs.destroy()
@@ -87,28 +98,41 @@ def test_kernel_coverage_accumulates_across_cycles(pytestconfig, backend):
     # Calculate new kernels added in second cycle
     new_in_second = second_cycle_kernels - first_cycle_kernels
 
-    # Strict accumulation assertion 1: first cycle's kernels must be a subset of second
-    # (accumulation means we never lose kernels)
+    # =========================================================================
+    # ASSERTIONS
+    # =========================================================================
+
+    # ASSERTION 2: Accumulation - first cycle's kernels must be subset of second
     assert first_cycle_kernels.issubset(second_cycle_kernels), (
         f"Kernel set should accumulate (first cycle should be subset of second). "
-        f"First cycle kernels not in second: {first_cycle_kernels - second_cycle_kernels}"
+        f"Lost kernels: {first_cycle_kernels - second_cycle_kernels}"
     )
 
-    # Strict accumulation assertion 2: second cycle MUST add new kernels
-    # This catches the original regression where collection stopped after first destroy.
-    # The Plane morph in cycle 2 triggers different kernels than Box-only in cycle 1.
+    # ASSERTION 3: Strict growth - second cycle MUST add new kernels
+    # This is the KEY regression test assertion. If _collection_complete wasn't
+    # reset on gs.init(), the second cycle would collect 0 new kernels.
+    # The Plane+Box collision scene guarantees different kernels from Box-only.
     assert len(new_in_second) > 0, (
-        f"Second cycle MUST collect new kernels (regression test). "
-        f"If this fails, kernel collection may have stopped after first gs.destroy(). "
+        f"REGRESSION DETECTED: Second cycle collected 0 new kernels! "
+        f"This indicates kernel collection stopped after first gs.destroy(). "
         f"First cycle: {len(first_cycle_kernels)} kernels, "
-        f"Second cycle: {len(second_cycle_kernels)} kernels, "
-        f"New in second: {len(new_in_second)}"
+        f"Second cycle: {len(second_cycle_kernels)} kernels. "
+        f"Expected second > first due to Plane collision kernels."
+    )
+
+    # ASSERTION 4: Sanity check - verify meaningful growth
+    # The Plane scene should trigger at least 10 new kernels for collision detection
+    min_expected_new = 10
+    assert len(new_in_second) >= min_expected_new, (
+        f"Expected at least {min_expected_new} new kernels from Plane collision scene, "
+        f"but got {len(new_in_second)}. This may indicate partial collection failure."
     )
 
     # Log results for verification
-    print("\nKernel coverage accumulation test:")
-    print(f"  Initial:          {len(initial_kernels)} kernels")
-    print(f"  After cycle 1:    {len(first_cycle_kernels)} kernels (+{len(new_in_first)})")
-    print(f"  After cycle 2:    {len(second_cycle_kernels)} kernels (+{len(new_in_second)})")
-    print(f"  First subset of second: {first_cycle_kernels.issubset(second_cycle_kernels)}")
-    print(f"  Strict growth verified: {len(new_in_second)} new kernels in cycle 2")
+    print("\nKernel coverage accumulation test (isolated & deterministic):")
+    print(f"  Baseline cleared:  {len(initial_kernels)} kernels (isolated from prior tests)")
+    print(f"  After cycle 1:     {len(first_cycle_kernels)} kernels (Box scene)")
+    print(f"  After cycle 2:     {len(second_cycle_kernels)} kernels (Plane+Box collision)")
+    print(f"  New in cycle 2:    {len(new_in_second)} kernels")
+    print(f"  Accumulation OK:   {first_cycle_kernels.issubset(second_cycle_kernels)}")
+    print(f"  Regression test:   PASS (cycle 2 added {len(new_in_second)} new kernels)")
