@@ -662,6 +662,10 @@ class Camera(RBC):
                 if data is not None and len(data) != n_envs:
                     gs.raise_exception("Input data inconsistent with 'envs_idx'.")
 
+        # Track whether user explicitly provided up before transform derivation
+        # This is needed because T_to_pos_lookat_up populates up from the transform
+        up_was_explicit = up is not None
+
         # Compute redundant quantities
         if transform is None:
             pos_ = pos if pos is not None else self._pos[envs_idx]
@@ -669,6 +673,7 @@ class Camera(RBC):
             up_ = up if up is not None else self._up[envs_idx]
             transform = gu.pos_lookat_up_to_T(pos_, lookat_, up_)
         else:
+            # Extract pos/lookat/up from transform (note: up_was_explicit already captured user intent)
             pos, lookat, up = gu.T_to_pos_lookat_up(transform)
 
         # Update camera transform
@@ -676,12 +681,12 @@ class Camera(RBC):
             self._pos[envs_idx] = pos
         if lookat is not None:
             self._lookat[envs_idx] = lookat
-        if up is not None:
+        if up_was_explicit:
             # When user explicitly provides up, store orthogonalized version
             # (the Y-axis from the computed rotation matrix) to prevent
             # discontinuities in subsequent animations
             self._up[envs_idx] = transform[..., :3, 1]
-        # When up is None, keep self._up unchanged to prevent drift
+        # When up was not explicitly provided, keep self._up unchanged to prevent drift
         self._transform[envs_idx] = transform
         self._quat[envs_idx] = gu.R_to_quat(transform[..., :3, :3])
 

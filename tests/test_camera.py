@@ -142,9 +142,8 @@ def test_camera_smooth_orbit_no_discontinuity(camera_scene):
     Simulating smooth camera orbit should not cause
     sudden jumps in camera orientation.
 
-    "Smooth" is defined as: when orbiting in small increments,
-    the angular change between consecutive transforms should be
-    proportional to the orbit step size.
+    "Smooth" is defined as: angular change between consecutive
+    transforms < 5 degrees when orbiting in 1-degree increments.
 
     This test verifies that there are no sudden jumps or discontinuities
     in the camera's rotation when orbiting smoothly.
@@ -162,12 +161,14 @@ def test_camera_smooth_orbit_no_discontinuity(camera_scene):
 
     prev_transform = cam.transform.copy()
 
-    # Orbit in small 5-degree increments
-    num_steps = 72  # Full 360 degree orbit
-    angle_step = 2 * np.pi / num_steps
+    # Orbit in 1-degree increments per the plan specification
+    num_steps = 360  # Full 360 degree orbit in 1-degree steps
+    angle_step = 2 * np.pi / num_steps  # radians per step (1 degree)
+
+    # Per plan: angular change should be < 5 degrees for 1-degree orbit steps
+    max_allowed_change = np.deg2rad(5.0)
 
     max_angular_change = 0.0
-    expected_max_change = angle_step * 2  # Allow some tolerance
 
     for i in range(1, num_steps + 1):
         angle = i * angle_step
@@ -194,11 +195,10 @@ def test_camera_smooth_orbit_no_discontinuity(camera_scene):
         max_angular_change = max(max_angular_change, angular_change)
 
         # Check that angular change is not too large (no sudden jumps)
-        # For a 5-degree orbit step, we expect roughly 5-degree rotation change
-        # Allow up to 3x the expected change for numerical tolerance
-        assert angular_change < expected_max_change * 3, (
+        # For 1-degree orbit steps, angular change should be < 5 degrees
+        assert angular_change < max_allowed_change, (
             f"Sudden jump detected at step {i}: angular change = {np.degrees(angular_change):.2f} degrees, "
-            f"expected max = {np.degrees(expected_max_change * 3):.2f} degrees"
+            f"max allowed = 5.0 degrees"
         )
 
         prev_transform = current_transform.copy()
@@ -210,8 +210,12 @@ def test_camera_smooth_orbit_no_discontinuity(camera_scene):
 def test_camera_up_preserved_after_transform_set_pose(camera_scene):
     """
     When set_pose() is called with a transform matrix (no explicit up),
-    the stored up vector should be extracted from the transform's Y-axis
-    but should not cause drift in subsequent pos/lookat calls.
+    the stored up vector should NOT be modified because the user didn't
+    explicitly provide an up vector - the transform takes priority.
+
+    This tests the edge case from the design review: "Transform-only calls:
+    When set_pose(transform=...) is called, up remains None, so self._up
+    won't update. This is correct behavior - transform takes priority."
     """
     scene, cam = camera_scene
 
@@ -219,19 +223,25 @@ def test_camera_up_preserved_after_transform_set_pose(camera_scene):
     cam.set_pose(pos=(2.0, 0.0, 1.5), lookat=(0.0, 0.0, 0.0), up=(0.0, 0.0, 1.0))
     up_after_plu = cam.up.copy()
 
-    # Now set pose using a transform matrix
+    # Now set pose using a transform matrix (no explicit up provided)
     transform = cam.transform.copy()
     cam.set_pose(transform=transform)
 
     # Get up after transform-based set_pose
-    up_after_transform = cam.up
+    # The up vector should remain unchanged since we didn't explicitly provide up
+    up_after_transform = cam.up.copy()
+    assert_allclose(
+        up_after_transform,
+        up_after_plu,
+        tol=1e-5,
+        err_msg=f"Up vector changed after transform set_pose: was {up_after_plu}, now {up_after_transform}",
+    )
 
     # Now do another pos/lookat call without up (different position, same height above lookat)
     cam.set_pose(pos=(0.0, 2.0, 1.5), lookat=(0.0, 0.0, 0.0))
     up_after_second_plu = cam.up
 
     # The up vector should be consistent throughout
-    # (or at least not drift unexpectedly)
     assert_allclose(
         up_after_second_plu,
         up_after_plu,
