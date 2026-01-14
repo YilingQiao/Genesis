@@ -84,22 +84,31 @@ def test_kernel_coverage_accumulates_across_cycles(pytestconfig, backend):
     # Snapshot kernels after second cycle
     second_cycle_kernels = set(tracker._executed_kernels)
 
-    # Strict growth assertion: first cycle's kernels must be a subset of second cycle's
+    # Calculate new kernels added in second cycle
+    new_in_second = second_cycle_kernels - first_cycle_kernels
+
+    # Strict accumulation assertion 1: first cycle's kernels must be a subset of second
     # (accumulation means we never lose kernels)
     assert first_cycle_kernels.issubset(second_cycle_kernels), (
         f"Kernel set should accumulate (first cycle should be subset of second). "
         f"First cycle kernels not in second: {first_cycle_kernels - second_cycle_kernels}"
     )
 
-    # Verify the second cycle added at least some new kernels OR maintained all
-    # (The key test is that we didn't LOSE any kernels - that would indicate reset)
-    assert len(second_cycle_kernels) >= len(first_cycle_kernels), (
-        f"Kernel count should not decrease. First: {len(first_cycle_kernels)}, Second: {len(second_cycle_kernels)}"
+    # Strict accumulation assertion 2: second cycle MUST add new kernels
+    # This catches the original regression where collection stopped after first destroy.
+    # The Plane morph in cycle 2 triggers different kernels than Box-only in cycle 1.
+    assert len(new_in_second) > 0, (
+        f"Second cycle MUST collect new kernels (regression test). "
+        f"If this fails, kernel collection may have stopped after first gs.destroy(). "
+        f"First cycle: {len(first_cycle_kernels)} kernels, "
+        f"Second cycle: {len(second_cycle_kernels)} kernels, "
+        f"New in second: {len(new_in_second)}"
     )
 
     # Log results for verification
     print("\nKernel coverage accumulation test:")
     print(f"  Initial:          {len(initial_kernels)} kernels")
     print(f"  After cycle 1:    {len(first_cycle_kernels)} kernels (+{len(new_in_first)})")
-    print(f"  After cycle 2:    {len(second_cycle_kernels)} kernels")
+    print(f"  After cycle 2:    {len(second_cycle_kernels)} kernels (+{len(new_in_second)})")
     print(f"  First subset of second: {first_cycle_kernels.issubset(second_cycle_kernels)}")
+    print(f"  Strict growth verified: {len(new_in_second)} new kernels in cycle 2")
