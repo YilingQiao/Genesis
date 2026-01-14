@@ -69,6 +69,7 @@ def _patched_ti_init(*args, **kwargs):
 # Patch gs.destroy to collect profiler data before destruction
 _original_gs_destroy = None
 _gs_destroy_patched = False
+_collection_done = False  # Flag to avoid re-collecting after taichi is destroyed
 
 
 def _patch_gs_destroy():
@@ -91,7 +92,7 @@ def _patch_gs_destroy():
 
 def _patched_gs_destroy():
     """Patched gs.destroy that collects profiler data before destroying."""
-    global _original_gs_destroy
+    global _original_gs_destroy, _collection_done
 
     # Collect profiler data before destroying taichi context
     try:
@@ -100,6 +101,7 @@ def _patched_gs_destroy():
         tracker = get_tracker()
         if tracker._profiler_enabled and tracker._ti is not None:
             tracker.collect()
+            _collection_done = True  # Mark collection as done to avoid re-collecting
     except Exception:
         pass  # Silently ignore collection errors
 
@@ -167,6 +169,8 @@ def pytest_configure(config):
 @pytest.hookimpl(trylast=True)
 def pytest_sessionfinish(session, exitstatus):
     """Collect and save kernel coverage at end of test session."""
+    global _collection_done
+
     config = session.config
     if not config.getoption("--kernel-coverage", False):
         return
@@ -178,8 +182,9 @@ def pytest_sessionfinish(session, exitstatus):
         return
 
     try:
-        # Collect profiler data
-        tracker.collect()
+        # Only collect if not already done (gs.destroy may have already collected)
+        if not _collection_done:
+            tracker.collect()
         executed = tracker._executed_kernels
 
         if worker_id:

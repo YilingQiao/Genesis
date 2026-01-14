@@ -36,6 +36,15 @@ mkdir -p "$COVERAGE_DATA_DIR"
 echo "Checking dependencies..."
 $PYTHON -c "import coverage" 2>/dev/null || $PYTHON -m pip install coverage[toml] pytest-cov
 
+# Check if pytest-xdist is available
+XDIST_ARGS=""
+if $PYTHON -c "import xdist" 2>/dev/null; then
+    echo "pytest-xdist detected, using single-process mode for accurate coverage"
+    XDIST_ARGS="--numprocesses=1"
+else
+    echo "pytest-xdist not installed, running without parallelism flags"
+fi
+
 # Build test arguments
 TEST_ARGS="$@"
 if [ -z "$TEST_ARGS" ]; then
@@ -47,16 +56,14 @@ echo "Step 1: Running tests with Python coverage..."
 echo "----------------------------------------------"
 
 # Run pytest with coverage
-# Note: We disable xdist parallelism for more accurate coverage
-# Use --numprocesses=1 for single-process, or remove for parallel (may miss some coverage)
+# Note: Coverage plugin is auto-registered via tests/conftest.py
 $PYTEST \
     --cov=genesis \
     --cov-report=term-missing \
     --cov-report=html:$COVERAGE_REPORT_DIR/python \
     --cov-report=json:$COVERAGE_REPORT_DIR/python_coverage.json \
     --cov-config=pyproject.toml \
-    --numprocesses=1 \
-    -p tests.coverage.conftest_plugin \
+    $XDIST_ARGS \
     --kernel-coverage \
     --kernel-coverage-report="$KERNEL_COVERAGE_FILE" \
     $TEST_ARGS || true

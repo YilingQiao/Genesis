@@ -19,6 +19,9 @@ from _pytest.mark import Expression, MarkMatcher
 from PIL import Image
 from syrupy.extensions.image import PNGImageSnapshotExtension
 
+# Auto-register the kernel coverage plugin so --kernel-coverage works without -p flag
+pytest_plugins = ["tests.coverage.conftest_plugin"]
+
 has_display = True
 try:
     from tkinter import Tk

@@ -46,6 +46,7 @@ class KernelCoverageTracker:
         self._executed_kernels: set[str] = set()
         self._profiler_enabled = False
         self._ti = None
+        self._collection_complete = False  # Flag to avoid re-collecting after taichi destroyed
 
     def discover_kernels(self) -> dict[str, list[str]]:
         """
@@ -141,6 +142,10 @@ class KernelCoverageTracker:
         Returns:
             Set of kernel names that were executed.
         """
+        # Skip if already collected (avoids errors after taichi is destroyed)
+        if self._collection_complete:
+            return self._executed_kernels
+
         if not self._profiler_enabled or self._ti is None:
             return self._executed_kernels
 
@@ -157,8 +162,13 @@ class KernelCoverageTracker:
                 self._executed_kernels.add(name)
                 # Also keep original for matching
                 self._executed_kernels.add(record.name)
+
+            # Mark collection as complete to avoid re-collecting after taichi destroyed
+            self._collection_complete = True
         except Exception as e:
-            print(f"Warning: Could not collect kernel profiler data: {e}")
+            # Only warn if collection wasn't already done
+            if not self._collection_complete:
+                print(f"Warning: Could not collect kernel profiler data: {e}")
 
         return self._executed_kernels
 
