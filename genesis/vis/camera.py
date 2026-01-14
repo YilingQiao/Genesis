@@ -676,8 +676,12 @@ class Camera(RBC):
             self._pos[envs_idx] = pos
         if lookat is not None:
             self._lookat[envs_idx] = lookat
-        # Update up with the computed Y-axis from rotation matrix
-        self._up[envs_idx] = transform[..., :3, 1]
+        if up is not None:
+            # When user explicitly provides up, store orthogonalized version
+            # (the Y-axis from the computed rotation matrix) to prevent
+            # discontinuities in subsequent animations
+            self._up[envs_idx] = transform[..., :3, 1]
+        # When up is None, keep self._up unchanged to prevent drift
         self._transform[envs_idx] = transform
         self._quat[envs_idx] = gu.R_to_quat(transform[..., :3, :3])
 
