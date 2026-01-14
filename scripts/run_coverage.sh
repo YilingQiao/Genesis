@@ -12,9 +12,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 cd "$PROJECT_ROOT"
 
-# Default Python/pytest paths (adjust for your environment)
-PYTHON="${PYTHON:-/home/qq/miniconda3/envs/vlao312/bin/python}"
-PYTEST="${PYTEST:-/home/qq/miniconda3/envs/vlao312/bin/pytest}"
+# Use Python/pytest from current environment (or override via env vars)
+# This finds the Python that's currently in PATH
+PYTHON="${PYTHON:-$(command -v python3 || command -v python)}"
+PYTEST="${PYTEST:-$(command -v pytest || echo "$PYTHON -m pytest")}"
 
 # Coverage output directories
 COVERAGE_DATA_DIR=".coverage_data"

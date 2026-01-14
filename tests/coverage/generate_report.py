@@ -30,20 +30,31 @@ def combine_coverage_files(data_dir: Path) -> bool:
         print(f"Coverage data directory not found: {data_dir}")
         return False
 
-    # Find all .coverage.* files
+    # Find all .coverage.* files (parallel coverage files)
     coverage_files = list(data_dir.glob(".coverage.*"))
     if coverage_files:
         print(f"Found {len(coverage_files)} parallel coverage files, combining...")
+        # Run coverage combine from within the data directory
+        # This ensures it finds all .coverage.* files
         result = subprocess.run(
-            ["coverage", "combine", "--data-file", str(data_dir / ".coverage")],
-            cwd=data_dir.parent,
+            ["coverage", "combine"],
+            cwd=str(data_dir),
             capture_output=True,
             text=True,
         )
         if result.returncode != 0:
             print(f"Warning: coverage combine failed: {result.stderr}")
+        else:
+            print(f"Successfully combined {len(coverage_files)} coverage files")
 
-    return (data_dir / ".coverage").exists()
+    # Verify combined file exists
+    combined_file = data_dir / ".coverage"
+    if combined_file.exists():
+        print(f"Combined coverage file: {combined_file}")
+        return True
+    else:
+        print(f"Warning: Combined coverage file not found at {combined_file}")
+        return False
 
 
 def generate_python_coverage_report(data_dir: Path, output_dir: Path) -> dict:
@@ -109,9 +120,9 @@ def generate_combined_html_report(python_stats: dict, kernel_stats: dict, output
     python_pct = python_stats.get("percent_covered", 0)
     kernel_pct = kernel_stats.get("coverage_percent", 0)
 
-    # Calculate combined score (weighted average)
-    # Python coverage is more important as it covers more code paths
-    combined_pct = (python_pct * 0.7 + kernel_pct * 0.3) if kernel_pct > 0 else python_pct
+    # Calculate combined score (weighted average: 70% Python + 30% Kernel)
+    # Always use the weighted formula so missing kernel coverage is reflected in the score
+    combined_pct = python_pct * 0.7 + kernel_pct * 0.3
 
     html = f"""<!DOCTYPE html>
 <html>

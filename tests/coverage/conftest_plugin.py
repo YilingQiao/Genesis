@@ -1,14 +1,16 @@
 """
-Pytest plugin for kernel coverage tracking.
+Pytest plugin for kernel coverage tracking with xdist support.
 
 To enable, add to your conftest.py:
     pytest_plugins = ["tests.coverage.conftest_plugin"]
 
 Or run with:
-    pytest --kernel-coverage
+    pytest -p tests.coverage.conftest_plugin --kernel-coverage
 """
 
+import json
 import os
+import sys
 from pathlib import Path
 
 import pytest
@@ -30,28 +32,136 @@ def pytest_addoption(parser):
     )
 
 
-def pytest_configure(config):
-    """Configure kernel coverage if enabled."""
-    if not config.getoption("--kernel-coverage", False):
-        return
+# Patch gstaichi.init to automatically enable kernel profiler
+_original_ti_init = None
+_kernel_coverage_enabled = False
 
-    # Only run on main process, not xdist workers
-    if os.environ.get("PYTEST_XDIST_WORKER"):
-        return
 
-    # IMPORTANT: Patch gstaichi FIRST, before any code imports it
-    print("\nKernel coverage: patching gstaichi.init BEFORE anything imports genesis...")
-    _patch_gstaichi_init()
+def _patched_ti_init(*args, **kwargs):
+    """Patched ti.init that enables kernel profiler."""
+    global _original_ti_init
 
+    # Inject kernel_profiler=True if not already set
+    if "kernel_profiler" not in kwargs:
+        kwargs["kernel_profiler"] = True
+
+    result = _original_ti_init(*args, **kwargs)
+
+    # Mark profiler as enabled in our tracker
     try:
         from tests.coverage.kernel_coverage import get_tracker
 
         tracker = get_tracker()
-        tracker.discover_kernels()
-        config._kernel_tracker = tracker
-        print(f"Kernel coverage: discovered {sum(len(v) for v in tracker._defined_kernels.values())} kernels")
-    except ImportError as e:
-        print(f"\nWarning: Could not enable kernel coverage: {e}")
+        tracker._profiler_enabled = True
+        import gstaichi as ti
+
+        tracker._ti = ti
+
+        # Patch gs.destroy to collect profiler data before destruction
+        _patch_gs_destroy()
+    except Exception as e:
+        worker_id = os.environ.get("PYTEST_XDIST_WORKER", "main")
+        print(f"Kernel coverage [{worker_id}]: failed to enable tracker: {e}", file=sys.stderr)
+
+    return result
+
+
+# Patch gs.destroy to collect profiler data before destruction
+_original_gs_destroy = None
+_gs_destroy_patched = False
+
+
+def _patch_gs_destroy():
+    """Patch genesis.destroy to collect profiler data before destroying taichi context."""
+    global _original_gs_destroy, _gs_destroy_patched
+
+    if _gs_destroy_patched:
+        return
+
+    try:
+        import genesis as gs
+
+        if _original_gs_destroy is None:
+            _original_gs_destroy = gs.destroy
+            gs.destroy = _patched_gs_destroy
+            _gs_destroy_patched = True
+    except ImportError:
+        pass
+
+
+def _patched_gs_destroy():
+    """Patched gs.destroy that collects profiler data before destroying."""
+    global _original_gs_destroy
+
+    # Collect profiler data before destroying taichi context
+    try:
+        from tests.coverage.kernel_coverage import get_tracker
+
+        tracker = get_tracker()
+        if tracker._profiler_enabled and tracker._ti is not None:
+            tracker.collect()
+    except Exception:
+        pass  # Silently ignore collection errors
+
+    # Call original destroy
+    return _original_gs_destroy()
+
+
+def _patch_gstaichi_init():
+    """Patch gstaichi.init to enable kernel profiler."""
+    global _original_ti_init, _kernel_coverage_enabled
+
+    if _kernel_coverage_enabled:
+        return  # Already patched
+
+    worker_id = os.environ.get("PYTEST_XDIST_WORKER", "controller")
+
+    try:
+        import gstaichi as ti
+
+        if _original_ti_init is None:
+            _original_ti_init = ti.init
+            ti.init = _patched_ti_init
+            _kernel_coverage_enabled = True
+            print(f"Kernel coverage [{worker_id}]: patched gstaichi.init", file=sys.stderr)
+    except ImportError:
+        pass
+
+
+def pytest_configure(config):
+    """Configure kernel coverage if enabled - runs on BOTH controller and workers."""
+    if not config.getoption("--kernel-coverage", False):
+        return
+
+    worker_id = os.environ.get("PYTEST_XDIST_WORKER")
+
+    # IMPORTANT: Patch gstaichi in ALL processes (controller AND workers)
+    # This must happen BEFORE any test imports genesis
+    _patch_gstaichi_init()
+
+    # Only discover kernels on controller (workers don't need this info)
+    if worker_id is None:
+        try:
+            from tests.coverage.kernel_coverage import get_tracker
+
+            tracker = get_tracker()
+            tracker.discover_kernels()
+            config._kernel_tracker = tracker
+            config._kernel_coverage_report = config.getoption("--kernel-coverage-report")
+            total_kernels = sum(len(v) for v in tracker._defined_kernels.values())
+            print(f"Kernel coverage: discovered {total_kernels} kernels")
+        except ImportError as e:
+            print(f"\nWarning: Could not enable kernel coverage: {e}")
+    else:
+        # Workers need their own tracker instance
+        try:
+            from tests.coverage.kernel_coverage import get_tracker
+
+            tracker = get_tracker()
+            config._kernel_tracker = tracker
+            config._worker_id = worker_id
+        except ImportError:
+            pass
 
 
 @pytest.hookimpl(trylast=True)
@@ -61,121 +171,70 @@ def pytest_sessionfinish(session, exitstatus):
     if not config.getoption("--kernel-coverage", False):
         return
 
-    # Only run on main process
-    if os.environ.get("PYTEST_XDIST_WORKER"):
-        return
-
+    worker_id = os.environ.get("PYTEST_XDIST_WORKER")
     tracker = getattr(config, "_kernel_tracker", None)
+
     if tracker is None:
         return
 
     try:
-        # Try to enable profiler and collect data
-        tracker.enable()
+        # Collect profiler data
         tracker.collect()
+        executed = tracker._executed_kernels
 
-        # Save report
-        report_path = config.getoption("--kernel-coverage-report")
-        tracker.save_report(report_path)
-        tracker.print_summary()
+        if worker_id:
+            # Worker: save per-worker coverage file
+            worker_file = Path(f".kernel_coverage.{worker_id}.json")
+            with open(worker_file, "w") as f:
+                json.dump({"executed_kernels": list(executed)}, f)
+            print(f"Kernel coverage [{worker_id}]: saved {len(executed)} executed kernels", file=sys.stderr)
+        else:
+            # Controller: merge all worker files and generate final report
+            _merge_worker_coverage(config, tracker)
+
     except Exception as e:
-        print(f"\nWarning: Could not generate kernel coverage report: {e}")
+        print(f"\nWarning: Could not generate kernel coverage report: {e}", file=sys.stderr)
+        import traceback
+
+        traceback.print_exc()
 
 
-# Patch gstaichi.init to automatically enable kernel profiler
-_original_ti_init = None
+def _merge_worker_coverage(config, tracker):
+    """Merge kernel coverage from all workers into final report."""
+    # Find all worker coverage files
+    worker_files = list(Path(".").glob(".kernel_coverage.gw*.json"))
+
+    all_executed = set()
+
+    for wf in worker_files:
+        try:
+            with open(wf) as f:
+                data = json.load(f)
+                all_executed.update(data.get("executed_kernels", []))
+            # Clean up worker file
+            wf.unlink()
+        except Exception as e:
+            print(f"Warning: Could not read {wf}: {e}", file=sys.stderr)
+
+    # Also include any kernels from controller (if tests ran there too)
+    all_executed.update(tracker._executed_kernels)
+
+    # Update tracker with merged data
+    tracker._executed_kernels = all_executed
+
+    # Discover kernels if not already done
+    if not tracker._defined_kernels:
+        tracker.discover_kernels()
+
+    # Save final report
+    report_path = config.getoption("--kernel-coverage-report")
+    tracker.save_report(report_path)
+    tracker.print_summary()
 
 
-def _patched_ti_init(*args, **kwargs):
-    """Patched ti.init that enables kernel profiler."""
-    import sys
-
-    global _original_ti_init
-
-    # Inject kernel_profiler=True if not already set
-    if "kernel_profiler" not in kwargs:
-        kwargs["kernel_profiler"] = True
-        # Use stderr because genesis redirects stdout
-        print("Kernel coverage: injected kernel_profiler=True into ti.init", file=sys.stderr)
-
-    result = _original_ti_init(*args, **kwargs)
-
-    # Also call enable_after_init to mark profiler as enabled in our tracker
-    try:
-        from tests.coverage.kernel_coverage import get_tracker
-
-        tracker = get_tracker()
-        tracker._profiler_enabled = True
-        import gstaichi as ti
-
-        tracker._ti = ti
-        print("Kernel coverage: tracker enabled after ti.init", file=sys.stderr)
-    except Exception as e:
-        print(f"Kernel coverage: failed to enable tracker: {e}", file=sys.stderr)
-
-    return result
-
-
-def _patch_gstaichi_init():
-    """Patch gstaichi.init to enable kernel profiler."""
-    global _original_ti_init
-
-    import sys
-
-    if "gstaichi" in sys.modules:
-        print("WARNING: gstaichi already imported before patch!")
-    if "genesis" in sys.modules:
-        print("WARNING: genesis already imported before patch!")
-
-    try:
-        import gstaichi as ti
-
-        if _original_ti_init is None:
-            _original_ti_init = ti.init
-            ti.init = _patched_ti_init
-            print(f"Kernel coverage: patched gstaichi.init (id={id(ti.init)}) to enable kernel_profiler")
-            print(f"Kernel coverage: original ti.init id={id(_original_ti_init)}")
-
-            # Verify patch is in module
-            import gstaichi
-
-            print(f"Kernel coverage: gstaichi.init is now {gstaichi.init}")
-    except ImportError:
-        pass
-
-
-# Also patch gs.init for cases where it's called directly
-_original_gs_init = None
-
-
-def _patched_gs_init(*args, **kwargs):
-    """Patched gs.init that enables kernel profiler."""
-    global _original_gs_init
-    result = _original_gs_init(*args, **kwargs)
-
-    try:
-        from tests.coverage.kernel_coverage import get_tracker
-
-        tracker = get_tracker()
-        tracker.enable_after_init()
-    except Exception:
-        pass
-
-    return result
-
-
-def pytest_collection_modifyitems(session, config, items):
-    """Patch gs.init to enable kernel profiling after initialization."""
-    if not config.getoption("--kernel-coverage", False):
-        return
-
-    global _original_gs_init
-
-    try:
-        import genesis as gs
-
-        if _original_gs_init is None and hasattr(gs, "init"):
-            _original_gs_init = gs.init
-            gs.init = _patched_gs_init
-    except ImportError:
-        pass
+# Hook for xdist to ensure workers get configured
+def pytest_configure_node(node):
+    """Called on xdist controller to configure worker nodes."""
+    # Pass kernel coverage option to workers via environment
+    if node.config.getoption("--kernel-coverage", False):
+        node.workerinput["kernel_coverage_enabled"] = True
