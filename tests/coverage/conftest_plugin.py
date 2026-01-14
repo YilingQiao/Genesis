@@ -39,7 +39,7 @@ _kernel_coverage_enabled = False
 
 def _patched_ti_init(*args, **kwargs):
     """Patched ti.init that enables kernel profiler."""
-    global _original_ti_init
+    global _original_ti_init, _collection_done
 
     # Inject kernel_profiler=True if not already set
     if "kernel_profiler" not in kwargs:
@@ -56,6 +56,11 @@ def _patched_ti_init(*args, **kwargs):
         import gstaichi as ti
 
         tracker._ti = ti
+
+        # Reset collection flags for this new init/destroy cycle
+        # This allows kernel coverage to accumulate across multiple tests
+        tracker._collection_complete = False
+        _collection_done = False
 
         # Patch gs.destroy to collect profiler data before destruction
         _patch_gs_destroy()
