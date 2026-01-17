@@ -60,25 +60,25 @@ def import_from_stage(
     """
     from genesis.engine.entities.base_entity import Entity as GSEntity
 
-    original_file_path = None
+    stage_file_path = None  # The path used for baking/caching (decompressed for USDZ)
     baked_path = None
 
     # Handle file path input with preprocessing
     if isinstance(stage, str):
-        original_file_path = stage
+        stage_file_path = stage
 
         # USDZ decompression (MUST happen before Stage.Open)
         # Use USD_FORMATS constant - last element is .usdz
         if stage.lower().endswith(USD_FORMATS[-1]):
-            stage = decompress_usdz(stage)
+            stage_file_path = decompress_usdz(stage)
 
-        # Check for existing baked cache
-        baked_path = detect_baked_cache(stage)
+        # Check for existing baked cache (use decompressed path for USDZ)
+        baked_path = detect_baked_cache(stage_file_path)
         if baked_path:
             gs.logger.info(f"Baked assets detected and used: {baked_path}")
-            stage = baked_path
+            stage_file_path = baked_path
 
-        stage = Usd.Stage.Open(stage)
+        stage = Usd.Stage.Open(stage_file_path)
 
     # Create parser context
     context = UsdParserContext(stage)
@@ -100,7 +100,8 @@ def import_from_stage(
 
     # Step 2: Material baking if needed (targeted re-parse)
     if materials_requiring_bake and not baked_path:
-        file_to_bake = original_file_path or stage.GetRootLayer().realPath
+        # Use stage_file_path (decompressed path for USDZ) for consistent cache keying
+        file_to_bake = stage_file_path or stage.GetRootLayer().realPath
         baked_stage_path = run_material_baking(
             stage=stage,
             materials_to_bake=materials_requiring_bake,

@@ -87,9 +87,8 @@ class UsdGeometryAdapter:
         # Compute Genesis transform relative to ref_prim (Q^i_j)
         Q_rel, S = compute_gs_relative_transform(mesh_prim.GetPrim(), self._ref_prim)
 
-        # Apply Y-up to Z-up conversion if stage uses Y-up
-        if self._ctx.up_axis_is_y:
-            Q_rel = Q_rel @ mu.Y_UP_TRANSFORM
+        # Note: Y-up conversion is applied at the link/joint level in usd_rigid_entity_parser.py
+        # to avoid double-rotation. Do NOT apply Y_UP_TRANSFORM here.
 
         # Apply stage_scale (combines morph.scale * metersPerUnit) to translation
         stage_scale = self._ctx.stage_scale
@@ -320,9 +319,7 @@ class UsdGeometryAdapter:
         # Get plane transform relative to reference prim (includes scale S)
         Q_rel, S = compute_gs_relative_transform(self._prim, self._ref_prim)
 
-        # Apply Y-up to Z-up conversion if stage uses Y-up
-        if self._ctx.up_axis_is_y:
-            Q_rel = Q_rel @ mu.Y_UP_TRANSFORM
+        # Note: Y-up conversion is applied at the link/joint level in usd_rigid_entity_parser.py
 
         # Apply stage_scale to translation
         stage_scale = self._ctx.stage_scale
@@ -373,9 +370,7 @@ class UsdGeometryAdapter:
         # Get transform relative to reference prim (includes scale S)
         Q_rel, S = compute_gs_relative_transform(self._prim, self._ref_prim)
 
-        # Apply Y-up to Z-up conversion if stage uses Y-up
-        if self._ctx.up_axis_is_y:
-            Q_rel = Q_rel @ mu.Y_UP_TRANSFORM
+        # Note: Y-up conversion is applied at the link/joint level in usd_rigid_entity_parser.py
 
         # Apply stage_scale to translation
         stage_scale = self._ctx.stage_scale
@@ -419,9 +414,7 @@ class UsdGeometryAdapter:
         # Get transform relative to reference prim (includes scale S)
         Q_rel, S = compute_gs_relative_transform(self._prim, self._ref_prim)
 
-        # Apply Y-up to Z-up conversion if stage uses Y-up
-        if self._ctx.up_axis_is_y:
-            Q_rel = Q_rel @ mu.Y_UP_TRANSFORM
+        # Note: Y-up conversion is applied at the link/joint level in usd_rigid_entity_parser.py
 
         # Apply stage_scale to translation
         stage_scale = self._ctx.stage_scale
@@ -488,9 +481,7 @@ class UsdGeometryAdapter:
         # Get transform relative to reference prim (includes scale S)
         Q_rel, S = compute_gs_relative_transform(self._prim, self._ref_prim)
 
-        # Apply Y-up to Z-up conversion if stage uses Y-up
-        if self._ctx.up_axis_is_y:
-            Q_rel = Q_rel @ mu.Y_UP_TRANSFORM
+        # Note: Y-up conversion is applied at the link/joint level in usd_rigid_entity_parser.py
 
         # Apply stage_scale to translation
         stage_scale = self._ctx.stage_scale
@@ -532,9 +523,7 @@ class UsdGeometryAdapter:
         # Get transform relative to reference prim (includes scale S)
         Q_rel, S = compute_gs_relative_transform(self._prim, self._ref_prim)
 
-        # Apply Y-up to Z-up conversion if stage uses Y-up
-        if self._ctx.up_axis_is_y:
-            Q_rel = Q_rel @ mu.Y_UP_TRANSFORM
+        # Note: Y-up conversion is applied at the link/joint level in usd_rigid_entity_parser.py
 
         # Apply stage_scale to translation
         stage_scale = self._ctx.stage_scale
