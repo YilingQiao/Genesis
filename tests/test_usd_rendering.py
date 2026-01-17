@@ -163,18 +163,20 @@ def test_add_stage_y_up_and_meters_per_unit(initialize_genesis):
     by creating a temporary USD stage with:
     - upAxis = "Y"
     - metersPerUnit = 0.01 (centimeters)
-    - A simple rigid body with physics APIs
+    - A simple rigid body with physics APIs and explicit rotation
 
     The test verifies that:
     1. The stage loads successfully via add_stage
     2. The entity is created with correct scaling (0.01 * 1.0 = 0.01)
-    3. Y-up conversion is applied to link transforms
+    3. Y-up conversion is applied to link position AND rotation (quaternion)
+    4. Both collision and visual modes work correctly
     """
+    from genesis.utils import geom as gu
     from genesis.utils import mesh as mu
 
     import genesis as gs
 
-    # Create a temporary USD file with Y-up and metersPerUnit=0.01
+    # Create a temporary USD file with Y-up, metersPerUnit=0.01, and explicit rotation
     with tempfile.NamedTemporaryFile(suffix=".usda", delete=False, mode="w") as f:
         f.write("""#usda 1.0
 (
@@ -191,9 +193,10 @@ def Xform "World" (
         prepend apiSchemas = ["PhysicsRigidBodyAPI", "PhysicsMassAPI"]
     )
     {
-        # Position at (100, 200, 0) in centimeters
+        # Position at (100, 200, 0) in centimeters with 45-degree rotation around Y
         double3 xformOp:translate = (100, 200, 0)
-        uniform token[] xformOpOrder = ["xformOp:translate"]
+        float3 xformOp:rotateXYZ = (0, 45, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:rotateXYZ"]
 
         float physics:mass = 1.0
 
@@ -204,6 +207,15 @@ def Xform "World" (
             # 10cm cube = 0.1m after scaling
             double size = 10
         }
+
+        def Mesh "Visual"
+        {
+            # Simple visual mesh (cube-like)
+            float3[] points = [(-5, -5, -5), (5, -5, -5), (5, 5, -5), (-5, 5, -5),
+                               (-5, -5, 5), (5, -5, 5), (5, 5, 5), (-5, 5, 5)]
+            int[] faceVertexCounts = [4, 4, 4, 4, 4, 4]
+            int[] faceVertexIndices = [0, 1, 2, 3, 4, 5, 6, 7, 0, 1, 5, 4, 2, 3, 7, 6, 0, 3, 7, 4, 1, 2, 6, 5]
+        }
     }
 }
 """)
@@ -211,25 +223,20 @@ def Xform "World" (
         usd_path = f.name
 
     try:
-        scene = gs.Scene(show_viewer=False)
+        # Test with collision mode
+        scene_collision = gs.Scene(show_viewer=False)
 
-        # Add the stage
-        entities = scene.add_stage(
+        entities = scene_collision.add_stage(
             morph=gs.morphs.USD(file=usd_path),
             vis_mode="collision",
         )
 
-        # Verify entity was created
         assert len(entities) > 0, "No entities created from USD stage"
 
-        # Get the first entity
         entity = list(entities.values())[0]
         assert entity is not None
-
-        # Verify entity has links
         assert len(entity.links) > 0, "Entity has no links"
 
-        # Get the root link (first link with the rigid body)
         link = entity.links[0]
 
         # Calculate expected position:
@@ -242,30 +249,76 @@ def Xform "World" (
         meters_per_unit = 0.01
         expected_pos = transformed_pos[:3] * meters_per_unit
 
-        # Assert link position matches expected values (with tolerance)
         link_pos = np.array(link.pos)
         assert np.allclose(link_pos, expected_pos, atol=1e-5), (
-            f"Link position {link_pos} does not match expected {expected_pos} (Y-up conversion + metersPerUnit scaling)"
+            f"Link position {link_pos} does not match expected {expected_pos} (Y-up + metersPerUnit)"
+        )
+
+        # Calculate expected quaternion:
+        # Original rotation: 45 degrees around Y axis in Y-up space
+        # After Y_UP_TRANSFORM (left multiply), the rotation basis changes
+        # Expected: Y_UP_R @ original_R
+        angle_rad = np.radians(45)
+        cos_half = np.cos(angle_rad / 2)
+        sin_half = np.sin(angle_rad / 2)
+        # Rotation around Y axis: quat = [cos(a/2), 0, sin(a/2), 0] (w, x, y, z)
+        original_quat = np.array([cos_half, 0, sin_half, 0])
+        original_rot = gu.quat_to_R(original_quat)
+
+        # Apply Y_UP_TRANSFORM to rotation: Y_UP_R @ original_R
+        y_up_rot = y_up_transform[:3, :3]
+        expected_rot = y_up_rot @ original_rot
+        expected_quat = gu.R_to_quat(expected_rot)
+
+        link_quat = np.array(link.quat)
+        # Quaternions can have opposite signs but represent the same rotation
+        if np.dot(link_quat, expected_quat) < 0:
+            expected_quat = -expected_quat
+
+        assert np.allclose(link_quat, expected_quat, atol=1e-4), (
+            f"Link quaternion {link_quat} does not match expected {expected_quat} (Y-up rotation conversion)"
         )
 
         # Verify collision geometry is scaled correctly
-        # The cube size is 10 (cm) which should become ~0.1m in extents after scaling
         if len(link.geoms) > 0:
             geom = link.geoms[0]
-            # Geom mesh should have vertices scaled by metersPerUnit
-            # A 10cm cube centered at origin has vertices at +/-5cm = +/-0.05m
             if hasattr(geom, "mesh") and geom.mesh is not None:
                 verts = geom.mesh.verts
-                # Check that vertex extents are scaled correctly
                 max_extent = np.max(np.abs(verts))
-                # USD Cube with size=10 has half-extent of 5, scaled by 0.01 = 0.05
                 expected_half_extent = 5.0 * meters_per_unit
                 assert np.isclose(max_extent, expected_half_extent, rtol=0.1), (
                     f"Geom extent {max_extent} does not match expected {expected_half_extent}"
                 )
 
-        # Build and verify the scene builds without error
-        scene.build()
+        scene_collision.build()
+
+        # Test with visual mode to verify Y-up conversion for visual meshes (AC4)
+        scene_visual = gs.Scene(show_viewer=False)
+
+        entities_visual = scene_visual.add_stage(
+            morph=gs.morphs.USD(file=usd_path),
+            vis_mode="visual",
+        )
+
+        assert len(entities_visual) > 0, "No entities created in visual mode"
+
+        entity_visual = list(entities_visual.values())[0]
+        link_visual = entity_visual.links[0]
+
+        # Position and quaternion should be the same in visual mode
+        link_pos_visual = np.array(link_visual.pos)
+        assert np.allclose(link_pos_visual, expected_pos, atol=1e-5), (
+            f"Visual mode position {link_pos_visual} does not match expected {expected_pos}"
+        )
+
+        link_quat_visual = np.array(link_visual.quat)
+        if np.dot(link_quat_visual, expected_quat) < 0:
+            expected_quat = -expected_quat
+        assert np.allclose(link_quat_visual, expected_quat, atol=1e-4), (
+            f"Visual mode quaternion {link_quat_visual} does not match expected {expected_quat}"
+        )
+
+        scene_visual.build()
 
     finally:
         os.unlink(usd_path)
@@ -277,13 +330,15 @@ def test_add_stage_z_up_no_conversion(initialize_genesis):
     Integration test for add_stage with Z-up axis (no conversion needed).
 
     This test validates that Z-up stages work correctly without Y-up conversion.
-    The position should remain unchanged since:
+    The position and rotation should remain unchanged since:
     - upAxis = "Z" (no Y-up conversion)
     - metersPerUnit = 1.0 (no scaling)
     """
+    from genesis.utils import geom as gu
+
     import genesis as gs
 
-    # Create a temporary USD file with Z-up
+    # Create a temporary USD file with Z-up and explicit rotation
     with tempfile.NamedTemporaryFile(suffix=".usda", delete=False, mode="w") as f:
         f.write("""#usda 1.0
 (
@@ -301,7 +356,8 @@ def Xform "World" (
     )
     {
         double3 xformOp:translate = (1, 2, 3)
-        uniform token[] xformOpOrder = ["xformOp:translate"]
+        float3 xformOp:rotateXYZ = (30, 0, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:rotateXYZ"]
 
         float physics:mass = 1.0
 
@@ -320,39 +376,45 @@ def Xform "World" (
     try:
         scene = gs.Scene(show_viewer=False)
 
-        # Add the stage
         entities = scene.add_stage(
             morph=gs.morphs.USD(file=usd_path),
             vis_mode="collision",
         )
 
-        # Verify entity was created
         assert len(entities) > 0, "No entities created from USD stage"
 
-        # Get the first entity
         entity = list(entities.values())[0]
         assert entity is not None
-
-        # Verify entity has links
         assert len(entity.links) > 0, "Entity has no links"
 
-        # Get the root link
         link = entity.links[0]
 
         # For Z-up with metersPerUnit=1.0, position should be unchanged
-        # Original position: (1, 2, 3)
-        # No Y-up conversion (already Z-up)
-        # No scaling (metersPerUnit=1.0)
         expected_pos = np.array([1.0, 2.0, 3.0])
 
-        # Assert link position is unchanged
         link_pos = np.array(link.pos)
         assert np.allclose(link_pos, expected_pos, atol=1e-5), (
-            f"Link position {link_pos} does not match expected {expected_pos} (Z-up should have no conversion applied)"
+            f"Link position {link_pos} does not match expected {expected_pos} (Z-up should have no conversion)"
+        )
+
+        # For Z-up, quaternion should match the original rotation (30 degrees around X)
+        # No Y_UP_TRANSFORM should be applied
+        angle_rad = np.radians(30)
+        cos_half = np.cos(angle_rad / 2)
+        sin_half = np.sin(angle_rad / 2)
+        # Rotation around X axis: quat = [cos(a/2), sin(a/2), 0, 0] (w, x, y, z)
+        expected_quat = np.array([cos_half, sin_half, 0, 0])
+
+        link_quat = np.array(link.quat)
+        # Quaternions can have opposite signs but represent the same rotation
+        if np.dot(link_quat, expected_quat) < 0:
+            expected_quat = -expected_quat
+
+        assert np.allclose(link_quat, expected_quat, atol=1e-4), (
+            f"Link quaternion {link_quat} does not match expected {expected_quat} (Z-up should have no rotation conversion)"
         )
 
         # Verify collision geometry size is unchanged
-        # Cube size=1 with metersPerUnit=1.0 should have half-extent of 0.5
         if len(link.geoms) > 0:
             geom = link.geoms[0]
             if hasattr(geom, "mesh") and geom.mesh is not None:
@@ -363,7 +425,6 @@ def Xform "World" (
                     f"Geom extent {max_extent} does not match expected {expected_half_extent}"
                 )
 
-        # Build and verify the scene builds without error
         scene.build()
 
     finally:
@@ -377,15 +438,16 @@ def test_usdz_baking_path_normalization(initialize_genesis, monkeypatch):
 
     This test validates AC2/AC5 by verifying that:
     1. decompress_usdz is called for .usdz files
-    2. The decompressed path is used for detect_baked_cache
-    3. The decompressed path is used for run_material_baking
+    2. detect_baked_cache receives the decompressed path (not the .usdz path)
+    3. run_material_baking receives the decompressed path (not the .usdz path)
 
-    Uses monkeypatching to intercept the path handling.
-    Calls import_from_stage directly to bypass morph file validation.
+    Uses monkeypatching to intercept path handling while using the actual add_stage path.
+    Creates a real .usdz file to pass morph file validation.
     """
+    import zipfile
+
     import genesis as gs
     from genesis.utils.usd import usd_parser
-    from genesis.utils.usd.usd_parser import import_from_stage
 
     # Create a temporary USD file (will be used as "decompressed" content)
     with tempfile.NamedTemporaryFile(suffix=".usda", delete=False, mode="w") as f:
@@ -421,17 +483,31 @@ def Xform "World" (
         f.flush()
         usda_path = f.name
 
-    # Create a fake .usdz path (doesn't need to exist since we monkeypatch decompress)
-    fake_usdz_path = usda_path.replace(".usda", ".usdz")
+    # Create a real .usdz file (zip file containing the .usda)
+    # This is required because gs.morphs.USD validates file existence
+    usdz_path = usda_path.replace(".usda", ".usdz")
+    usda_basename = os.path.basename(usda_path)
+    with zipfile.ZipFile(usdz_path, "w") as zf:
+        zf.write(usda_path, usda_basename)
 
-    # Track what paths are passed to baking functions
-    captured_paths = {"decompress_called": False, "decompress_input": None, "baking_path": None}
+    # Track what paths are passed to functions
+    captured_paths = {
+        "decompress_called": False,
+        "decompress_input": None,
+        "detect_cache_path": None,
+        "baking_path": None,
+    }
 
-    def mock_decompress_usdz(usdz_path):
+    def mock_decompress_usdz(usdz_path_arg):
         """Mock decompress_usdz to return the usda path."""
         captured_paths["decompress_called"] = True
-        captured_paths["decompress_input"] = usdz_path
+        captured_paths["decompress_input"] = usdz_path_arg
         return usda_path  # Return the real usda file path
+
+    def mock_detect_baked_cache(file_path):
+        """Mock detect_baked_cache to capture its input path."""
+        captured_paths["detect_cache_path"] = file_path
+        return None  # No cache found
 
     def mock_run_material_baking(stage, materials_to_bake, original_path):
         """Mock run_material_baking to capture the path argument."""
@@ -443,30 +519,35 @@ def Xform "World" (
         # Return non-empty materials_requiring_bake to trigger baking branch
         return {}, {"fake_material_id": "/root/Looks/FakeMaterial"}
 
-    # Apply monkeypatches
+    # Apply monkeypatches to the usd_parser module (where the imports are used)
     monkeypatch.setattr(usd_parser, "decompress_usdz", mock_decompress_usdz)
+    monkeypatch.setattr(usd_parser, "detect_baked_cache", mock_detect_baked_cache)
     monkeypatch.setattr(usd_parser, "run_material_baking", mock_run_material_baking)
     monkeypatch.setattr(usd_parser, "parse_all_materials", mock_parse_all_materials)
 
     try:
         scene = gs.Scene(show_viewer=False)
 
-        # Create a morph using the real usda path (for validation), but call import_from_stage
-        # with the fake .usdz path to test the path normalization logic
-        usd_morph = gs.morphs.USD(file=usda_path)
-
-        # Call import_from_stage directly with fake .usdz path to trigger decompression
-        entities = import_from_stage(
-            scene=scene,
-            stage=fake_usdz_path,  # This triggers the .usdz path
+        # Use add_stage with the real .usdz file to test the full path
+        entities = scene.add_stage(
+            morph=gs.morphs.USD(file=usdz_path),
             vis_mode="collision",
-            usd_morph=usd_morph,
         )
 
         # Verify decompress_usdz was called with the .usdz path
         assert captured_paths["decompress_called"], "decompress_usdz was not called for .usdz file"
-        assert captured_paths["decompress_input"] == fake_usdz_path, (
-            f"decompress_usdz received wrong path: {captured_paths['decompress_input']}"
+        assert captured_paths["decompress_input"] == usdz_path, (
+            f"decompress_usdz received wrong path: {captured_paths['decompress_input']}, expected {usdz_path}"
+        )
+
+        # Verify detect_baked_cache received the decompressed path (not the .usdz path)
+        assert captured_paths["detect_cache_path"] is not None, "detect_baked_cache was not called"
+        assert captured_paths["detect_cache_path"] == usda_path, (
+            f"detect_baked_cache received {captured_paths['detect_cache_path']} "
+            f"but expected decompressed path {usda_path}"
+        )
+        assert captured_paths["detect_cache_path"] != usdz_path, (
+            "detect_baked_cache should use decompressed path, not original .usdz path"
         )
 
         # Verify run_material_baking received the decompressed path (not the .usdz path)
@@ -474,10 +555,11 @@ def Xform "World" (
         assert captured_paths["baking_path"] == usda_path, (
             f"run_material_baking received {captured_paths['baking_path']} but expected decompressed path {usda_path}"
         )
-        # Specifically verify it did NOT receive the original .usdz path
-        assert captured_paths["baking_path"] != fake_usdz_path, (
+        assert captured_paths["baking_path"] != usdz_path, (
             "run_material_baking should use decompressed path, not original .usdz path"
         )
 
     finally:
         os.unlink(usda_path)
+        if os.path.exists(usdz_path):
+            os.unlink(usdz_path)
