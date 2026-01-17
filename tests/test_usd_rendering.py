@@ -563,3 +563,114 @@ def Xform "World" (
         os.unlink(usda_path)
         if os.path.exists(usdz_path):
             os.unlink(usdz_path)
+
+
+@pytest.mark.skipif(not HAS_USD_SUPPORT, reason="USD support not available")
+def test_baked_cache_hit(initialize_genesis, monkeypatch):
+    """
+    Test that baked cache is correctly detected and used.
+
+    This test validates AC2 by verifying that:
+    1. When a baked cache exists, detect_baked_cache returns the baked path
+    2. Usd.Stage.Open uses the baked path (not the original file path)
+    3. run_material_baking is NOT called (baking is skipped)
+
+    Creates a real baked cache directory structure to test the full cache hit path.
+    """
+    import shutil
+
+    import genesis as gs
+    from genesis.utils import mesh as mu
+    from genesis.utils.usd import usd_parser
+
+    # Create a temporary USD file
+    with tempfile.NamedTemporaryFile(suffix=".usda", delete=False, mode="w") as f:
+        f.write("""#usda 1.0
+(
+    defaultPrim = "World"
+    metersPerUnit = 1.0
+    upAxis = "Z"
+)
+
+def Xform "World" (
+    kind = "assembly"
+)
+{
+    def Xform "RigidBody" (
+        prepend apiSchemas = ["PhysicsRigidBodyAPI", "PhysicsMassAPI"]
+    )
+    {
+        double3 xformOp:translate = (0, 0, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+
+        float physics:mass = 1.0
+
+        def Cube "Collision" (
+            prepend apiSchemas = ["PhysicsCollisionAPI"]
+        )
+        {
+            double size = 1
+        }
+    }
+}
+""")
+        f.flush()
+        usda_path = f.name
+
+    # Create the baked cache directory and copy the usda file into it
+    baked_folder = mu.get_usd_bake_path(usda_path)
+    os.makedirs(baked_folder, exist_ok=True)
+    baked_path = os.path.join(baked_folder, os.path.basename(usda_path))
+    shutil.copy2(usda_path, baked_path)
+
+    # Track function calls
+    captured = {
+        "baking_called": False,
+        "stage_open_path": None,
+    }
+
+    def mock_run_material_baking(stage, materials_to_bake, original_path):
+        """Mock run_material_baking - should NOT be called when cache hits."""
+        captured["baking_called"] = True
+        return None
+
+    # Wrap Usd.Stage.Open to capture the path used
+    original_stage_open = Usd.Stage.Open
+
+    def wrapped_stage_open(path, *args, **kwargs):
+        captured["stage_open_path"] = path
+        return original_stage_open(path, *args, **kwargs)
+
+    # Apply monkeypatches
+    monkeypatch.setattr(usd_parser, "run_material_baking", mock_run_material_baking)
+    monkeypatch.setattr(Usd.Stage, "Open", wrapped_stage_open)
+
+    try:
+        scene = gs.Scene(show_viewer=False)
+
+        # Use add_stage with the original usda file
+        # The cache should be detected and the baked path should be used
+        entities = scene.add_stage(
+            morph=gs.morphs.USD(file=usda_path),
+            vis_mode="collision",
+        )
+
+        # Verify entities were created (confirms the stage loaded correctly)
+        assert len(entities) > 0, "No entities created from USD stage"
+
+        # Verify Usd.Stage.Open was called with the BAKED path (not the original)
+        assert captured["stage_open_path"] is not None, "Usd.Stage.Open was not called"
+        assert captured["stage_open_path"] == baked_path, (
+            f"Usd.Stage.Open used {captured['stage_open_path']} but expected baked path {baked_path}"
+        )
+        assert captured["stage_open_path"] != usda_path, "Usd.Stage.Open should use baked path, not original file path"
+
+        # Verify run_material_baking was NOT called (baking skipped due to cache hit)
+        assert not captured["baking_called"], "run_material_baking should NOT be called when baked cache exists"
+
+    finally:
+        os.unlink(usda_path)
+        if os.path.exists(baked_path):
+            os.unlink(baked_path)
+        if os.path.exists(baked_folder):
+            shutil.rmtree(baked_folder, ignore_errors=True)
