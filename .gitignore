@@ -150,3 +150,19 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+# Claude Code / Humanize artifacts
+.humanize*
+.claude/
+CLAUDE.md
+CONTEXT.md
+
+# Test output artifacts
+camera_*.png
+rasterizer_test.png
+raytracer_test.png
+camera_sensor_output/
+debug/
+objs/
+yiling_claude_setup/
+usd_rendering.md
