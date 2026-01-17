@@ -1006,11 +1006,11 @@ def _parse_joints(
 
         trans_mat, _ = compute_gs_relative_transform(child_link, parent_link)
 
-        # Apply Y-up to Z-up conversion if needed
+        # Apply Y-up to Z-up conversion if needed (left multiply to transform position)
         stage_scale = morph.parser_ctx.stage_scale
         up_axis_is_y = morph.parser_ctx.up_axis_is_y
         if up_axis_is_y:
-            trans_mat = trans_mat @ mu.Y_UP_TRANSFORM
+            trans_mat = mu.Y_UP_TRANSFORM @ trans_mat
 
         # Apply stage_scale to link position
         l_info["pos"] = trans_mat[:3, 3] * stage_scale
@@ -1192,12 +1192,12 @@ def parse_usd_rigid_entity(morph: gs.morphs.USD, surface: gs.surfaces.Surface):
     up_axis_is_y = context.up_axis_is_y
     for link, link_g_infos in zip(links, links_g_infos):
         l_info = _parse_link(link)
-        # Apply Y-up to Z-up conversion if needed
+        # Apply Y-up to Z-up conversion if needed (left multiply to transform position)
         if up_axis_is_y:
             Q = np.eye(4)
             Q[:3, :3] = gu.quat_to_R(l_info["quat"])
             Q[:3, 3] = l_info["pos"]
-            Q = Q @ mu.Y_UP_TRANSFORM
+            Q = mu.Y_UP_TRANSFORM @ Q
             l_info["pos"] = Q[:3, 3]
             l_info["quat"] = gu.R_to_quat(Q[:3, :3])
         # Apply stage_scale to root link position
