@@ -39,6 +39,7 @@ class UsdParserContext:
         # Stage metadata for rendering support
         self._meters_per_unit: float = 1.0
         self._up_axis_is_y: bool = False
+        self._stage_scale: float = 1.0  # Combined scale: morph.scale * meters_per_unit
 
     @property
     def stage(self) -> Usd.Stage:
@@ -170,7 +171,12 @@ class UsdParserContext:
         """Check if the stage up-axis is Y."""
         return self._up_axis_is_y
 
-    def set_stage_metadata(self, meters_per_unit: float, up_axis_is_y: bool):
+    @property
+    def stage_scale(self) -> float:
+        """Get the combined stage scale (morph.scale * meters_per_unit)."""
+        return self._stage_scale
+
+    def set_stage_metadata(self, meters_per_unit: float, up_axis_is_y: bool, morph_scale: float = 1.0):
         """
         Set stage metadata for rendering support.
 
@@ -180,6 +186,9 @@ class UsdParserContext:
             The stage metersPerUnit value.
         up_axis_is_y : bool
             Whether the stage up-axis is Y.
+        morph_scale : float, optional
+            The morph scale from user configuration (default 1.0).
         """
         self._meters_per_unit = meters_per_unit
         self._up_axis_is_y = up_axis_is_y
+        self._stage_scale = morph_scale * meters_per_unit

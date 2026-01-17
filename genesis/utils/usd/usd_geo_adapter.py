@@ -91,6 +91,10 @@ class UsdGeometryAdapter:
         if self._ctx.up_axis_is_y:
             Q_rel = Q_rel @ mu.Y_UP_TRANSFORM
 
+        # Apply stage_scale (combines morph.scale * metersPerUnit) to translation
+        stage_scale = self._ctx.stage_scale
+        Q_rel[:3, 3] *= stage_scale
+
         # Get USD mesh attributes
         points_attr = mesh_prim.GetPointsAttr()
         face_vertex_counts_attr = mesh_prim.GetFaceVertexCountsAttr()
@@ -99,9 +103,9 @@ class UsdGeometryAdapter:
         if not points_attr.HasValue():
             gs.raise_exception(f"Mesh {mesh_prim.GetPath()} has no points.")
 
-        # Get points and apply scaling
+        # Get points and apply scaling (USD transform scale + stage_scale)
         points = np.array(points_attr.Get(), dtype=np.float32)
-        points = points @ S  # Apply scaling
+        points = points @ S * stage_scale  # Apply USD scale and stage scale
 
         # Get face data
         face_vertex_indices = (
@@ -320,20 +324,24 @@ class UsdGeometryAdapter:
         if self._ctx.up_axis_is_y:
             Q_rel = Q_rel @ mu.Y_UP_TRANSFORM
 
+        # Apply stage_scale to translation
+        stage_scale = self._ctx.stage_scale
+        Q_rel[:3, 3] *= stage_scale
+
         S_diag = np.diag(S)
 
-        # Apply scale to plane dimensions
+        # Apply scale to plane dimensions (USD scale + stage_scale)
         # For plane, scale width and length based on the plane's orientation
         # If axis is X, scale by Y and Z components; if Y, scale by X and Z; if Z, scale by X and Y
         if axis_str == "X":
-            width *= S_diag[1]  # Y scale
-            length *= S_diag[2]  # Z scale
+            width *= S_diag[1] * stage_scale  # Y scale + stage_scale
+            length *= S_diag[2] * stage_scale  # Z scale + stage_scale
         elif axis_str == "Y":
-            width *= S_diag[0]  # X scale
-            length *= S_diag[2]  # Z scale
+            width *= S_diag[0] * stage_scale  # X scale + stage_scale
+            length *= S_diag[2] * stage_scale  # Z scale + stage_scale
         else:  # Z
-            width *= S_diag[0]  # X scale
-            length *= S_diag[1]  # Y scale
+            width *= S_diag[0] * stage_scale  # X scale + stage_scale
+            length *= S_diag[1] * stage_scale  # Y scale + stage_scale
 
         # Transform normal to reference prim's local space
         plane_normal = Q_rel[:3, :3] @ plane_normal_local
@@ -369,12 +377,16 @@ class UsdGeometryAdapter:
         if self._ctx.up_axis_is_y:
             Q_rel = Q_rel @ mu.Y_UP_TRANSFORM
 
+        # Apply stage_scale to translation
+        stage_scale = self._ctx.stage_scale
+        Q_rel[:3, 3] *= stage_scale
+
         S_diag = np.diag(S)
 
         if not np.allclose(S_diag, S_diag[0]):
             gs.raise_exception(f"Sphere: {self._prim.GetPath()} scale is not uniform: {S}")
 
-        radius *= S_diag[0]
+        radius *= S_diag[0] * stage_scale  # Apply USD scale and stage_scale
 
         # Create sphere mesh (use fewer subdivisions for collision, more for visual)
         subdivisions = 2 if self._mesh_type == "mesh" else 3
@@ -411,21 +423,25 @@ class UsdGeometryAdapter:
         if self._ctx.up_axis_is_y:
             Q_rel = Q_rel @ mu.Y_UP_TRANSFORM
 
+        # Apply stage_scale to translation
+        stage_scale = self._ctx.stage_scale
+        Q_rel[:3, 3] *= stage_scale
+
         S_diag = np.diag(S)
 
-        # Apply scale to capsule dimensions
+        # Apply scale to capsule dimensions (USD scale + stage_scale)
         # Height scales along the axis direction, radius scales perpendicular to axis
         if axis_str == "X":
-            height *= S_diag[0]  # X scale
-            radius *= np.mean([S_diag[1], S_diag[2]])
+            height *= S_diag[0] * stage_scale
+            radius *= np.mean([S_diag[1], S_diag[2]]) * stage_scale
         elif axis_str == "Y":
-            height *= S_diag[1]  # Y scale
+            height *= S_diag[1] * stage_scale
             # Radius scales by average of X and Z
-            radius *= np.mean([S_diag[0], S_diag[2]])
+            radius *= np.mean([S_diag[0], S_diag[2]]) * stage_scale
         elif axis_str == "Z":
-            height *= S_diag[2]  # Z scale
+            height *= S_diag[2] * stage_scale
             # Radius scales by average of X and Y
-            radius *= np.mean([S_diag[0], S_diag[1]])
+            radius *= np.mean([S_diag[0], S_diag[1]]) * stage_scale
 
         # Create capsule mesh (use fewer subdivisions for collision, more for visual)
         # Note: trimesh capsule uses count parameter (radial, height)
@@ -476,9 +492,13 @@ class UsdGeometryAdapter:
         if self._ctx.up_axis_is_y:
             Q_rel = Q_rel @ mu.Y_UP_TRANSFORM
 
+        # Apply stage_scale to translation
+        stage_scale = self._ctx.stage_scale
+        Q_rel[:3, 3] *= stage_scale
+
         S_diag = np.diag(S)
-        # Apply scale to extents (element-wise multiplication)
-        extents = S_diag * extents
+        # Apply scale to extents (USD scale + stage_scale)
+        extents = S_diag * extents * stage_scale
 
         # Create box mesh (for visualization)
         tmesh = mu.create_box(extents=extents)
@@ -516,21 +536,25 @@ class UsdGeometryAdapter:
         if self._ctx.up_axis_is_y:
             Q_rel = Q_rel @ mu.Y_UP_TRANSFORM
 
+        # Apply stage_scale to translation
+        stage_scale = self._ctx.stage_scale
+        Q_rel[:3, 3] *= stage_scale
+
         S_diag = np.diag(S)
 
-        # Apply scale to cylinder dimensions
+        # Apply scale to cylinder dimensions (USD scale + stage_scale)
         # Height scales along the axis direction, radius scales perpendicular to axis
         if axis_str == "X":
-            height *= S_diag[0]  # X scale
-            radius *= np.mean([S_diag[1], S_diag[2]])
+            height *= S_diag[0] * stage_scale
+            radius *= np.mean([S_diag[1], S_diag[2]]) * stage_scale
         elif axis_str == "Y":
-            height *= S_diag[1]  # Y scale
+            height *= S_diag[1] * stage_scale
             # Radius scales by average of X and Z
-            radius *= np.mean([S_diag[0], S_diag[2]])
+            radius *= np.mean([S_diag[0], S_diag[2]]) * stage_scale
         elif axis_str == "Z":
-            height *= S_diag[2]  # Z scale
+            height *= S_diag[2] * stage_scale
             # Radius scales by average of X and Y
-            radius *= np.mean([S_diag[0], S_diag[1]])
+            radius *= np.mean([S_diag[0], S_diag[1]]) * stage_scale
 
         # Create cylinder mesh (use fewer sections for collision, more for visual)
         sections = 8 if self._mesh_type == "mesh" else 16

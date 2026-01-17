@@ -1,8 +1,4 @@
-import logging
 import os
-import shutil
-import subprocess
-from pathlib import Path
 
 import numpy as np
 import trimesh
@@ -11,7 +7,12 @@ from PIL import Image
 import genesis as gs
 
 from .. import mesh as mu
-from .usd_stage_utils import decompress_usdz, replace_asset_symlinks
+from .usd_stage_utils import (
+    decompress_usdz,
+    detect_baked_cache,
+    get_stage_scale_and_upaxis,
+    run_material_baking,
+)
 
 try:
     from pxr import Usd, UsdGeom, UsdShade
@@ -214,18 +215,18 @@ def parse_mesh_usd(path: str, group_by_material: bool, scale, surface: gs.surfac
     if path.lower().endswith(gs.options.morphs.USD_FORMATS[-1]):
         path = decompress_usdz(path)
 
-    # detect bake file caches
-    is_bake_cache_found = False
-    baked_folder = mu.get_usd_bake_path(path)
-    baked_path = os.path.join(baked_folder, os.path.basename(path))
-    if bake_cache and os.path.exists(baked_path):
+    # Detect bake file caches using shared utility
+    baked_path = detect_baked_cache(path) if bake_cache else None
+    is_bake_cache_found = baked_path is not None
+    if is_bake_cache_found:
         path = baked_path
-        is_bake_cache_found = True
         gs.logger.info(f"Baked assets detected and used: {path}")
 
     stage = Usd.Stage.Open(path)
-    scale *= UsdGeom.GetStageMetersPerUnit(stage)
-    yup = UsdGeom.GetStageUpAxis(stage) == "Y"
+
+    # Get stage scale and up-axis using shared utility
+    meters_per_unit, yup = get_stage_scale_and_upaxis(stage)
+    scale *= meters_per_unit
     xform_cache = UsdGeom.XformCache()
 
     mesh_infos = mu.MeshInfoGroup()
@@ -247,59 +248,20 @@ def parse_mesh_usd(path: str, group_by_material: bool, scale, surface: gs.surfac
                     baked_materials[material_id] = material_usd.GetPath()
 
     if baked_materials:
-        device = gs.device
-        if device.type == "cpu":
-            try:
-                device, *_ = gs.utils.get_device(gs.cuda)
-            except gs.GenesisException as e:
-                gs.raise_exception_from("USD baking requires CUDA GPU.", e)
+        # Use shared utility for material baking subprocess
+        baked_stage_path = run_material_baking(
+            stage=stage,
+            materials_to_bake={k: str(v) for k, v in baked_materials.items()},
+            original_path=path,
+        )
 
-        replace_asset_symlinks(stage)
-        os.makedirs(baked_folder, exist_ok=True)
-
-        # Note that it is necessary to call 'bake_usd_material' via a subprocess to ensure proper isolation of
-        # omninerse kit, otherwise the global conversion registry of some Python bindings will be conflicting between
-        # each, ultimately leading to segfault...
-        commands = [
-            "python",
-            os.path.join(os.path.dirname(os.path.abspath(__file__)), "usda_bake.py"),
-            "--input_file",
-            path,
-            "--output_dir",
-            baked_folder,
-            "--usd_material_paths",
-            *map(str, baked_materials.values()),
-            "--device",
-            str(device.index if device.index is not None else 0),
-            "--log_level",
-            logging.getLevelName(gs.logger.level).lower(),
-        ]
-        gs.logger.debug(f"Execute: {' '.join(commands)}")
-
-        try:
-            result = subprocess.run(
-                commands,
-                capture_output=True,
-                check=True,
-                text=True,
-            )
-            if result.stdout:
-                gs.logger.debug(result.stdout)
-            if result.stderr:
-                gs.logger.warning(result.stderr)
-        except (subprocess.CalledProcessError, OSError) as e:
-            gs.logger.warning(f"Baking process failed: {e} (Note that USD baking may only support Python 3.10 now.)")
-
-        if os.path.exists(baked_path):
-            gs.logger.warning(f"USD materials baked to file {baked_path}")
-            stage = Usd.Stage.Open(baked_path)
+        # Re-parse baked materials if baking succeeded
+        if baked_stage_path:
+            baked_stage = Usd.Stage.Open(baked_stage_path)
             for baked_material_id, baked_material_path in baked_materials.items():
-                baked_material_usd = UsdShade.Material(stage.GetPrimAtPath(baked_material_path))
-                baked_material, uv_name, require_bake = parse_usd_material(baked_material_usd, surface)
+                baked_material_usd = UsdShade.Material(baked_stage.GetPrimAtPath(baked_material_path))
+                baked_material, uv_name, _ = parse_usd_material(baked_material_usd, surface)
                 materials[baked_material_id] = (baked_material, uv_name)
-
-            for baked_texture_obj in Path(baked_folder).glob("baked_textures*"):
-                shutil.rmtree(baked_texture_obj)
 
     # parse geometries
     for prim in stage.Traverse():

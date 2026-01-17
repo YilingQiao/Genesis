@@ -19,6 +19,7 @@ from pxr import Sdf, Usd, UsdPhysics
 import genesis as gs
 from genesis.options.morphs import USD
 from .. import geom as gu
+from .. import mesh as mu
 from .. import urdf as urdf_utils
 from .usd_geo_adapter import create_geo_info_from_prim, create_geo_infos_from_subtree
 from .usd_parser_context import UsdParserContext
@@ -1005,7 +1006,14 @@ def _parse_joints(
 
         trans_mat, _ = compute_gs_relative_transform(child_link, parent_link)
 
-        l_info["pos"] = trans_mat[:3, 3]
+        # Apply Y-up to Z-up conversion if needed
+        stage_scale = morph.parser_ctx.stage_scale
+        up_axis_is_y = morph.parser_ctx.up_axis_is_y
+        if up_axis_is_y:
+            trans_mat = trans_mat @ mu.Y_UP_TRANSFORM
+
+        # Apply stage_scale to link position
+        l_info["pos"] = trans_mat[:3, 3] * stage_scale
         l_info["quat"] = gu.R_to_quat(trans_mat[:3, :3])
 
         if parent_link:
@@ -1027,6 +1035,9 @@ def _parse_joints(
             prismatic_joint = UsdPhysics.PrismaticJoint(joint_prim)
             j_info.update(_parse_prismatic_joint(prismatic_joint, parent_link, child_link))
             j_info.update(_parse_prismatic_joint_dynamics(prismatic_joint, morph))
+            # Prismatic joint limits are linear positions, need to scale
+            if "dofs_limit" in j_info:
+                j_info["dofs_limit"] = j_info["dofs_limit"] * stage_scale
         elif joint_prim.IsA(UsdPhysics.SphericalJoint):
             spherical_joint = UsdPhysics.SphericalJoint(joint_prim)
             j_info.update(_parse_spherical_joint(spherical_joint, parent_link, child_link))
@@ -1038,6 +1049,20 @@ def _parse_joints(
                     "Treating as fixed joint."
                 )
             j_info.update(_parse_fixed_joint(joint_prim, parent_link, child_link))
+
+        # Apply Y-up to Z-up conversion to joint position and axes (if needed)
+        if up_axis_is_y:
+            y_up_rot = mu.Y_UP_TRANSFORM[:3, :3]
+            if "pos" in j_info:
+                j_info["pos"] = y_up_rot @ j_info["pos"]
+            if "dofs_motion_ang" in j_info:
+                j_info["dofs_motion_ang"] = j_info["dofs_motion_ang"] @ y_up_rot.T
+            if "dofs_motion_vel" in j_info:
+                j_info["dofs_motion_vel"] = j_info["dofs_motion_vel"] @ y_up_rot.T
+
+        # Apply stage_scale to joint position (if present)
+        if "pos" in j_info:
+            j_info["pos"] = j_info["pos"] * stage_scale
 
         n_dofs = j_info["n_dofs"]
         j_type = j_info["type"]
@@ -1122,10 +1147,8 @@ def parse_usd_rigid_entity(morph: gs.morphs.USD, surface: gs.surfaces.Surface):
     eqs_info : list
         List of equality constraint info dictionaries.
     """
-    # Validate scale
-    if morph.scale is not None and morph.scale != 1.0:
-        gs.logger.warning("USD rigid entity parsing currently only supports scale=1.0. Scale will be set to 1.0.")
-    morph.scale = 1.0
+    # Scale is now handled via context.stage_scale (combines morph.scale * meters_per_unit)
+    # The scale is applied to all geometry and transforms during parsing
 
     assert morph.parser_ctx is not None, "USDRigidEntity must have a parser context."
     assert morph.prim_path is not None, "USDRigidEntity must have a prim path."
@@ -1165,8 +1188,20 @@ def parse_usd_rigid_entity(morph: gs.morphs.USD, surface: gs.surfaces.Surface):
     links_j_infos = [[] for _ in range(n_links)]
     links_g_infos = [[] for _ in range(n_links)]
 
+    stage_scale = context.stage_scale
+    up_axis_is_y = context.up_axis_is_y
     for link, link_g_infos in zip(links, links_g_infos):
         l_info = _parse_link(link)
+        # Apply Y-up to Z-up conversion if needed
+        if up_axis_is_y:
+            Q = np.eye(4)
+            Q[:3, :3] = gu.quat_to_R(l_info["quat"])
+            Q[:3, 3] = l_info["pos"]
+            Q = Q @ mu.Y_UP_TRANSFORM
+            l_info["pos"] = Q[:3, 3]
+            l_info["quat"] = gu.R_to_quat(Q[:3, :3])
+        # Apply stage_scale to root link position
+        l_info["pos"] = l_info["pos"] * stage_scale
         l_infos.append(l_info)
         visual_g_infos = _create_visual_geo_infos(link, context, morph)
         collision_g_infos = _create_collision_geo_infos(link, context, morph)

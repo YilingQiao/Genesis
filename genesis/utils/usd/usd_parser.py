@@ -83,9 +83,10 @@ def import_from_stage(
     # Create parser context
     context = UsdParserContext(stage)
 
-    # Get stage scale and up-axis
+    # Get stage scale and up-axis, compute combined scale with morph.scale
     meters_per_unit, up_axis_is_y = get_stage_scale_and_upaxis(stage)
-    context.set_stage_metadata(meters_per_unit, up_axis_is_y)
+    morph_scale = usd_morph.scale if usd_morph.scale is not None else 1.0
+    context.set_stage_metadata(meters_per_unit, up_axis_is_y, morph_scale)
 
     context._vis_mode = vis_mode
     usd_morph.parser_ctx = context
