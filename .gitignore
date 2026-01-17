@@ -166,3 +166,4 @@ debug/
 objs/
 yiling_claude_setup/
 usd_rendering.md
+tests/test_hibernation.py
