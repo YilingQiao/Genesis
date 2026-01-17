@@ -36,6 +36,9 @@ class UsdParserContext:
         self._rigid_body_prims: dict[str, Usd.Prim] = {}  # prim_path -> rigid_body_top_prim
         self._vis_mode: Literal["visual", "collision"] = "visual"
         self._link_prims: Set[Usd.Prim] = set()
+        # Stage metadata for rendering support
+        self._meters_per_unit: float = 1.0
+        self._up_axis_is_y: bool = False
 
     @property
     def stage(self) -> Usd.Stage:
@@ -156,3 +159,27 @@ class UsdParserContext:
             Tuple of (material_surface, uv_name) if found, None otherwise.
         """
         return self._materials.get(material_id)
+
+    @property
+    def meters_per_unit(self) -> float:
+        """Get the stage metersPerUnit value."""
+        return self._meters_per_unit
+
+    @property
+    def up_axis_is_y(self) -> bool:
+        """Check if the stage up-axis is Y."""
+        return self._up_axis_is_y
+
+    def set_stage_metadata(self, meters_per_unit: float, up_axis_is_y: bool):
+        """
+        Set stage metadata for rendering support.
+
+        Parameters
+        ----------
+        meters_per_unit : float
+            The stage metersPerUnit value.
+        up_axis_is_y : bool
+            Whether the stage up-axis is Y.
+        """
+        self._meters_per_unit = meters_per_unit
+        self._up_axis_is_y = up_axis_is_y

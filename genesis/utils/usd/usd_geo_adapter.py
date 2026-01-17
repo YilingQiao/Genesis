@@ -87,6 +87,10 @@ class UsdGeometryAdapter:
         # Compute Genesis transform relative to ref_prim (Q^i_j)
         Q_rel, S = compute_gs_relative_transform(mesh_prim.GetPrim(), self._ref_prim)
 
+        # Apply Y-up to Z-up conversion if stage uses Y-up
+        if self._ctx.up_axis_is_y:
+            Q_rel = Q_rel @ mu.Y_UP_TRANSFORM
+
         # Get USD mesh attributes
         points_attr = mesh_prim.GetPointsAttr()
         face_vertex_counts_attr = mesh_prim.GetFaceVertexCountsAttr()
@@ -311,6 +315,11 @@ class UsdGeometryAdapter:
 
         # Get plane transform relative to reference prim (includes scale S)
         Q_rel, S = compute_gs_relative_transform(self._prim, self._ref_prim)
+
+        # Apply Y-up to Z-up conversion if stage uses Y-up
+        if self._ctx.up_axis_is_y:
+            Q_rel = Q_rel @ mu.Y_UP_TRANSFORM
+
         S_diag = np.diag(S)
 
         # Apply scale to plane dimensions
@@ -355,6 +364,11 @@ class UsdGeometryAdapter:
 
         # Get transform relative to reference prim (includes scale S)
         Q_rel, S = compute_gs_relative_transform(self._prim, self._ref_prim)
+
+        # Apply Y-up to Z-up conversion if stage uses Y-up
+        if self._ctx.up_axis_is_y:
+            Q_rel = Q_rel @ mu.Y_UP_TRANSFORM
+
         S_diag = np.diag(S)
 
         if not np.allclose(S_diag, S_diag[0]):
@@ -392,6 +406,11 @@ class UsdGeometryAdapter:
 
         # Get transform relative to reference prim (includes scale S)
         Q_rel, S = compute_gs_relative_transform(self._prim, self._ref_prim)
+
+        # Apply Y-up to Z-up conversion if stage uses Y-up
+        if self._ctx.up_axis_is_y:
+            Q_rel = Q_rel @ mu.Y_UP_TRANSFORM
+
         S_diag = np.diag(S)
 
         # Apply scale to capsule dimensions
@@ -452,6 +471,11 @@ class UsdGeometryAdapter:
 
         # Get transform relative to reference prim (includes scale S)
         Q_rel, S = compute_gs_relative_transform(self._prim, self._ref_prim)
+
+        # Apply Y-up to Z-up conversion if stage uses Y-up
+        if self._ctx.up_axis_is_y:
+            Q_rel = Q_rel @ mu.Y_UP_TRANSFORM
+
         S_diag = np.diag(S)
         # Apply scale to extents (element-wise multiplication)
         extents = S_diag * extents
@@ -487,6 +511,11 @@ class UsdGeometryAdapter:
 
         # Get transform relative to reference prim (includes scale S)
         Q_rel, S = compute_gs_relative_transform(self._prim, self._ref_prim)
+
+        # Apply Y-up to Z-up conversion if stage uses Y-up
+        if self._ctx.up_axis_is_y:
+            Q_rel = Q_rel @ mu.Y_UP_TRANSFORM
+
         S_diag = np.diag(S)
 
         # Apply scale to cylinder dimensions

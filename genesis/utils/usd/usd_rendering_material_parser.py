@@ -4,7 +4,7 @@ USD Rendering Material Parser
 Parser for extracting and parsing rendering materials from USD stages.
 """
 
-from pxr import Usd, UsdShade
+from pxr import UsdShade
 
 import genesis as gs
 
@@ -12,7 +12,7 @@ from . import usda
 from .usd_parser_context import UsdParserContext
 
 
-def parse_all_materials(context: UsdParserContext) -> dict:
+def parse_all_materials(context: UsdParserContext) -> tuple[dict, dict]:
     """
     Find all materials in the USD stage and parse them.
 
@@ -23,13 +23,14 @@ def parse_all_materials(context: UsdParserContext) -> dict:
 
     Returns
     -------
-    dict
-        The materials dictionary (same as context.materials).
-        Key: material_id (str) - unique identifier for the material
-        Value: tuple of (material_surface, uv_name) - parsed material surface and UV name
+    tuple[dict, dict]
+        A tuple of (materials_dict, materials_requiring_bake_dict):
+        - materials_dict: material_id -> (surface, uv_name)
+        - materials_requiring_bake_dict: material_id -> prim_path (for baking)
     """
     stage = context.stage
     materials = context.materials
+    materials_requiring_bake = {}  # Track locally, return to caller
     default_surface = gs.surfaces.Default()
 
     # Parse materials from the stage
@@ -42,9 +43,10 @@ def parse_all_materials(context: UsdParserContext) -> dict:
             if material_id not in materials:
                 material, uv_name, require_bake = usda.parse_usd_material(material_usd, default_surface)
                 materials[material_id] = (material, uv_name)
-                if require_bake:
-                    gs.logger.debug(
-                        f"Material {material_id} requires baking (not yet implemented in context-based parsing)"
-                    )
 
-    return materials
+                # Track materials requiring baking (return to caller)
+                if require_bake:
+                    materials_requiring_bake[material_id] = str(material_usd.GetPath())
+                    gs.logger.debug(f"Material {material_id} requires baking")
+
+    return materials, materials_requiring_bake

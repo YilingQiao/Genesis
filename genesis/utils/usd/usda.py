@@ -1,9 +1,7 @@
-import io
 import logging
 import os
 import shutil
 import subprocess
-import sys
 from pathlib import Path
 
 import numpy as np
@@ -13,9 +11,10 @@ from PIL import Image
 import genesis as gs
 
 from .. import mesh as mu
+from .usd_stage_utils import decompress_usdz, replace_asset_symlinks
 
 try:
-    from pxr import Sdf, Usd, UsdGeom, UsdShade
+    from pxr import Usd, UsdGeom, UsdShade
 except ImportError as e:
     raise ImportError(
         "Failed to import USD dependencies. Try installing Genesis with 'usd' optional dependencies."
@@ -208,59 +207,6 @@ def parse_usd_material(
         )
         gs.logger.debug(f"Material require baking:\n{candidates_str}")
     return material_surface, uv_name, require_bake
-
-
-def replace_asset_symlinks(stage: Usd.Stage):
-    asset_paths = set()
-
-    for prim in stage.TraverseAll():
-        for attr in prim.GetAttributes():
-            value = attr.Get()
-            if isinstance(value, Sdf.AssetPath):
-                asset_paths.add(value.resolvedPath)
-            elif isinstance(value, list):
-                for v in value:
-                    if isinstance(v, Sdf.AssetPath):
-                        asset_paths.add(v.resolvedPath)
-
-    for asset_path in map(Path, asset_paths):
-        if not asset_path.is_symlink():
-            continue
-
-        real_path = asset_path.resolve()
-        if asset_path.suffix.lower() == real_path.suffix.lower():
-            continue
-
-        asset_path.unlink()
-        if real_path.is_file():
-            gs.logger.warning(f"Replacing symlink {asset_path} with real file {real_path}.")
-            shutil.copy2(real_path, asset_path)
-
-
-def decompress_usdz(usdz_path):
-    usdz_folder = mu.get_usd_zip_path(usdz_path)
-
-    # The first file in the package must be a native usd file.
-    # See https://openusd.org/docs/Usdz-File-Format-Specification.html
-    zip_files = Usd.ZipFile.Open(usdz_path)
-    zip_filelist = zip_files.GetFileNames()
-    root_file = zip_filelist[0]
-    if not root_file.lower().endswith(gs.options.morphs.USD_FORMATS[:-1]):
-        gs.raise_exception(f"Invalid usdz root file: {root_file}")
-    root_path = os.path.join(usdz_folder, root_file)
-
-    if not os.path.exists(root_path):
-        for file_name in zip_filelist:
-            file_data = io.BytesIO(zip_files.GetFile(file_name))
-            file_path = os.path.join(usdz_folder, file_name)
-            file_folder = os.path.dirname(file_path)
-            os.makedirs(file_folder, exist_ok=True)
-            with open(file_path, "wb") as out:
-                out.write(file_data.read())
-        gs.logger.warning(f"USDZ file {usdz_path} decompressed to {root_path}.")
-    else:
-        gs.logger.info(f"Decompressed assets detected and used: {root_path}.")
-    return root_path
 
 
 # entrance
