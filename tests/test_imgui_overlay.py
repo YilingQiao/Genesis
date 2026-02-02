@@ -154,3 +154,49 @@ def test_imgui_overlay_single_env_update():
     # Verify the change was applied
     updated_qpos = entity.get_qpos().cpu().numpy()
     assert np.isclose(updated_qpos[0], 0.2)
+
+
+@pytest.mark.required
+def test_imgui_overlay_apply_qpos_update_signature():
+    """Test _apply_qpos_update passes correct arguments based on is_multi_env.
+
+    This test uses a mock to verify that:
+    - Single-env (is_multi_env=False): set_qpos is called WITHOUT envs_idx
+    - Multi-env (is_multi_env=True): set_qpos is called WITH envs_idx=0
+    """
+    from genesis.ext.pyrender.imgui_overlay import ImGuiOverlayPlugin
+    from unittest.mock import MagicMock
+    import numpy as np
+
+    plugin = ImGuiOverlayPlugin()
+
+    # Create a mock entity with a mocked set_qpos method
+    mock_entity = MagicMock()
+    test_qpos = [0.1, 0.2, 0.3]
+
+    # Test single-env case: should NOT pass envs_idx
+    mock_entity.reset_mock()
+    plugin._apply_qpos_update(mock_entity, test_qpos, is_multi_env=False)
+
+    # Verify set_qpos was called exactly once
+    assert mock_entity.set_qpos.call_count == 1
+    # Get the call arguments
+    call_args, call_kwargs = mock_entity.set_qpos.call_args
+    # Verify envs_idx was NOT passed (not in kwargs, not as positional arg)
+    assert "envs_idx" not in call_kwargs, "envs_idx should NOT be passed for single-env"
+    assert len(call_args) == 1, "Only qpos should be passed as positional arg for single-env"
+    # Verify the qpos values are correct
+    np.testing.assert_array_equal(call_args[0], np.asarray(test_qpos))
+
+    # Test multi-env case: should pass envs_idx=0
+    mock_entity.reset_mock()
+    plugin._apply_qpos_update(mock_entity, test_qpos, is_multi_env=True)
+
+    # Verify set_qpos was called exactly once
+    assert mock_entity.set_qpos.call_count == 1
+    # Get the call arguments
+    call_args, call_kwargs = mock_entity.set_qpos.call_args
+    # Verify envs_idx=0 was passed
+    assert call_kwargs.get("envs_idx") == 0, "envs_idx=0 should be passed for multi-env"
+    # Verify the qpos values are correct
+    np.testing.assert_array_equal(call_args[0], np.asarray(test_qpos))

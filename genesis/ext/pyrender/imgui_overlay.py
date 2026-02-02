@@ -157,6 +157,21 @@ class ImGuiOverlayPlugin(ViewerPlugin):
                     "n_qs": len(q_names),
                 }
 
+    def _apply_qpos_update(self, entity, new_qpos, is_multi_env: bool) -> None:
+        """Apply qpos update to entity, handling single-env vs multi-env correctly.
+
+        Args:
+            entity: The RigidEntity to update.
+            new_qpos: Array-like of new joint positions.
+            is_multi_env: If True, pass envs_idx=0 to set_qpos. If False, omit envs_idx.
+        """
+        qpos_array = np.asarray(new_qpos)
+        # Single-env scenes don't accept envs_idx parameter
+        if is_multi_env:
+            entity.set_qpos(qpos_array, envs_idx=0)
+        else:
+            entity.set_qpos(qpos_array)
+
     def _is_capturing(self) -> bool:
         """Check if ImGui wants mouse/keyboard input."""
         if not self._available:
@@ -263,11 +278,7 @@ class ImGuiOverlayPlugin(ViewerPlugin):
 
             if changed_any:
                 with self.viewer.render_lock:
-                    # Only pass envs_idx for multi-env scenes; single-env doesn't accept it
-                    if is_multi_env:
-                        entity.set_qpos(np.array(new_qpos), envs_idx=0)
-                    else:
-                        entity.set_qpos(np.array(new_qpos))
+                    self._apply_qpos_update(entity, new_qpos, is_multi_env)
 
         imgui.end()
 
