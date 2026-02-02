@@ -17,6 +17,7 @@ if TYPE_CHECKING:
     from genesis.ext.pyrender.viewer import Viewer
 
 FREE_JOINT_POS_LIMIT = 10.0
+QUATERNION_COMPONENT_LIMIT = 1.0
 
 
 class ImGuiOverlayPlugin(ViewerPlugin):
@@ -30,6 +31,7 @@ class ImGuiOverlayPlugin(ViewerPlugin):
     Limitations:
     - Only controls environment 0 in batched simulations
     - Free joint quaternions are read-only (position editable)
+    - Spherical joint quaternions are read-only
 
     Usage:
         scene.build()
@@ -80,11 +82,12 @@ class ImGuiOverlayPlugin(ViewerPlugin):
         style.frame_rounding = 2.0
         style.colors[self._imgui.Col_.window_bg.value] = (0.1, 0.1, 0.1, 0.9)
 
-    def _get_entity_name(self, entity) -> str:
-        """Extract a human-readable name for an entity."""
+    def _get_entity_name(self, entity, idx: int) -> str:
+        """Extract a human-readable name for an entity, with index for disambiguation."""
         morph_file = getattr(getattr(entity, "morph", None), "file", None)
         if morph_file:
-            return os.path.splitext(os.path.basename(morph_file))[0]
+            base_name = os.path.splitext(os.path.basename(morph_file))[0]
+            return f"{base_name} [{idx}]"
         return f"Entity_{entity.idx}"
 
     def _cache_entity_data(self):
@@ -105,6 +108,7 @@ class ImGuiOverlayPlugin(ViewerPlugin):
                     continue
 
                 if joint.type == gs.JOINT_TYPE.FREE:
+                    # Free joint: 3 position DOFs + 4 quaternion components
                     q_names.extend(
                         [
                             f"{joint.name}_x",
@@ -116,10 +120,26 @@ class ImGuiOverlayPlugin(ViewerPlugin):
                             f"{joint.name}_qz",
                         ]
                     )
-                    q_limits_lower.extend([-FREE_JOINT_POS_LIMIT] * 3 + [-1.0] * 4)
-                    q_limits_upper.extend([FREE_JOINT_POS_LIMIT] * 3 + [1.0] * 4)
+                    q_limits_lower.extend([-FREE_JOINT_POS_LIMIT] * 3 + [-QUATERNION_COMPONENT_LIMIT] * 4)
+                    q_limits_upper.extend([FREE_JOINT_POS_LIMIT] * 3 + [QUATERNION_COMPONENT_LIMIT] * 4)
+                    # Position components are editable, quaternion components are read-only
                     q_is_quaternion.extend([False, False, False, True, True, True, True])
+                elif joint.type == gs.JOINT_TYPE.SPHERICAL:
+                    # Spherical joint: n_qs=4 (quaternion), n_dofs=3
+                    # All 4 quaternion components are read-only
+                    q_names.extend(
+                        [
+                            f"{joint.name}_qw",
+                            f"{joint.name}_qx",
+                            f"{joint.name}_qy",
+                            f"{joint.name}_qz",
+                        ]
+                    )
+                    q_limits_lower.extend([-QUATERNION_COMPONENT_LIMIT] * 4)
+                    q_limits_upper.extend([QUATERNION_COMPONENT_LIMIT] * 4)
+                    q_is_quaternion.extend([True, True, True, True])
                 else:
+                    # Revolute, prismatic, or other joints: n_qs == n_dofs
                     for i in range(joint.n_qs):
                         name = joint.name if joint.n_qs == 1 else f"{joint.name}[{i}]"
                         q_names.append(name)
@@ -130,7 +150,7 @@ class ImGuiOverlayPlugin(ViewerPlugin):
             if q_names:
                 self._entity_cache[entity.idx] = {
                     "entity": entity,
-                    "name": self._get_entity_name(entity),
+                    "name": self._get_entity_name(entity, entity.idx),
                     "q_names": q_names,
                     "q_limits": (q_limits_lower, q_limits_upper),
                     "q_is_quaternion": q_is_quaternion,
@@ -151,6 +171,12 @@ class ImGuiOverlayPlugin(ViewerPlugin):
         return EVENT_HANDLED if self._is_capturing() else None
 
     def on_mouse_release(self, x, y, button, modifiers) -> EVENT_HANDLE_STATE:
+        return EVENT_HANDLED if self._is_capturing() else None
+
+    def on_mouse_scroll(self, x, y, dx, dy) -> EVENT_HANDLE_STATE:
+        return EVENT_HANDLED if self._is_capturing() else None
+
+    def on_mouse_motion(self, x, y, dx, dy) -> EVENT_HANDLE_STATE:
         return EVENT_HANDLED if self._is_capturing() else None
 
     def on_key_press(self, symbol, modifiers) -> EVENT_HANDLE_STATE:
@@ -205,7 +231,16 @@ class ImGuiOverlayPlugin(ViewerPlugin):
             if not expanded:
                 continue
 
-            qpos = entity.get_qpos().cpu().numpy().flatten()
+            # Get qpos - handle multi-env case by using only env 0
+            qpos_tensor = entity.get_qpos()
+            qpos_np = qpos_tensor.cpu().numpy()
+
+            # If multi-env (2D tensor with shape [n_envs, n_qs]), use only env 0
+            if qpos_np.ndim == 2:
+                qpos = qpos_np[0]
+            else:
+                qpos = qpos_np.flatten()
+
             lower, upper = data["q_limits"]
             changed_any = False
             new_qpos = list(qpos)
@@ -227,7 +262,8 @@ class ImGuiOverlayPlugin(ViewerPlugin):
 
             if changed_any:
                 with self.viewer.render_lock:
-                    entity.set_qpos(np.array(new_qpos))
+                    # Enforce env 0 only for multi-env scenes
+                    entity.set_qpos(np.array(new_qpos), envs_idx=0)
 
         imgui.end()
 
