@@ -23,11 +23,11 @@ QUATERNION_COMPONENT_LIMIT = 1.0
 
 class ImGuiOverlayPlugin(ViewerPlugin):
     """
-    ViewerPlugin that adds ImGui panels for joint control and simulation.
+    ViewerPlugin that adds an ImGui control panel for simulation and joint control.
 
     Features:
-    - Joint Control panel: sliders for each joint (editable only when paused)
-    - Simulation panel: play/pause/step/reset/speed controls
+    - Simulation controls: play/pause, step, reset
+    - Joint sliders for each entity (editable only when paused)
 
     Limitations:
     - Only controls environment 0 in batched simulations
@@ -53,7 +53,6 @@ class ImGuiOverlayPlugin(ViewerPlugin):
         self._init_attempted = False
         self._last_time = None
         self.paused = False
-        self.speed = 1.0
         self._step_requested = False
         self._entity_cache = {}
 
@@ -76,6 +75,8 @@ class ImGuiOverlayPlugin(ViewerPlugin):
             self._imgui = imgui
             imgui.create_context()
             self._impl = pyglet_backend.create_renderer(self.viewer, attach_callbacks=False)
+            # Fix: Set window reference for cursor handling (not set when attach_callbacks=False)
+            self._impl._window = self.viewer
             self._io = imgui.get_io()
             self._io.set_ini_filename("")  # Don't persist window positions
             self._setup_style()
@@ -182,6 +183,17 @@ class ImGuiOverlayPlugin(ViewerPlugin):
         else:
             entity.set_qpos(qpos_array)
 
+        # Update visual transforms after qpos change
+        rigid_solver = self.scene.rigid_solver
+        if rigid_solver.is_active:
+            rigid_solver.update_geoms_render_T()
+            rigid_solver.update_vgeoms()
+            rigid_solver.update_vgeoms_render_T()
+
+            # Force context to update render buffer with new transforms
+            gs_context = self.viewer.gs_context
+            gs_context.update_rigid(gs_context.buffer)
+
     def _is_capturing(self) -> bool:
         """Check if ImGui wants mouse/keyboard input."""
         if not self._available:
@@ -256,24 +268,43 @@ class ImGuiOverlayPlugin(ViewerPlugin):
 
         self._imgui.new_frame()
 
-        self._render_joint_panel()
-        self._render_sim_controls()
+        self._render_control_panel()
 
         self._imgui.render()
         self._impl.render(self._imgui.get_draw_data())
 
-    def _render_joint_panel(self):
-        """Render joint control sliders."""
+    def _render_control_panel(self):
+        """Render unified control panel with simulation controls and joint sliders."""
         imgui = self._imgui
-        imgui.begin("Joint Control", flags=imgui.WindowFlags_.always_auto_resize)
+        imgui.begin("Control Panel", flags=imgui.WindowFlags_.always_auto_resize)
 
+        # Simulation controls section
+        if imgui.button("Pause" if not self.paused else "Play", size=(60, 0)):
+            self.paused = not self.paused
+        imgui.same_line()
+        if imgui.button("Step", size=(50, 0)):
+            self._step_requested = True
+        imgui.same_line()
+        if imgui.button("Reset", size=(50, 0)):
+            with self.viewer.render_lock:
+                self.scene.reset()
+
+        if hasattr(self.scene, "t"):
+            imgui.text(f"Time: {self.scene.t:.3f}s")
+
+        if hasattr(self.scene, "n_envs") and self.scene.n_envs > 1:
+            imgui.text_colored((1.0, 0.7, 0.0, 1.0), f"Note: Controlling env 0 of {self.scene.n_envs}")
+
+        imgui.separator()
+
+        # Joint control section
         if not self._entity_cache:
             imgui.text("No controllable entities")
             imgui.end()
             return
 
         if not self.paused:
-            imgui.text_colored((0.7, 0.7, 0.7, 1.0), "Pause simulation to edit joints")
+            imgui.text_colored((0.7, 0.7, 0.7, 1.0), "Pause to edit joints")
 
         for entity_idx, data in self._entity_cache.items():
             entity = data["entity"]
@@ -317,41 +348,12 @@ class ImGuiOverlayPlugin(ViewerPlugin):
 
         imgui.end()
 
-    def _render_sim_controls(self):
-        """Render simulation control panel."""
-        imgui = self._imgui
-        imgui.begin("Simulation", flags=imgui.WindowFlags_.always_auto_resize)
-
-        if imgui.button("Pause" if not self.paused else "Play", size=(60, 0)):
-            self.paused = not self.paused
-        imgui.same_line()
-        if imgui.button("Step", size=(50, 0)):
-            self._step_requested = True
-        imgui.same_line()
-        if imgui.button("Reset", size=(50, 0)):
-            with self.viewer.render_lock:
-                self.scene.reset()
-
-        _, self.speed = imgui.slider_float("Speed", self.speed, 0.1, 5.0, "%.1fx")
-
-        if hasattr(self.scene, "t"):
-            imgui.text(f"Time: {self.scene.t:.3f}s")
-
-        if hasattr(self.scene, "n_envs") and self.scene.n_envs > 1:
-            imgui.text_colored((1.0, 0.7, 0.0, 1.0), f"Note: Controlling env 0 of {self.scene.n_envs}")
-
-        imgui.end()
-
     def should_step(self) -> bool:
         """Check if simulation should advance this frame."""
         if self._step_requested:
             self._step_requested = False
             return True
         return not self.paused
-
-    def get_speed(self) -> float:
-        """Get current simulation speed multiplier."""
-        return self.speed
 
     def on_close(self) -> None:
         """Clean up ImGui resources."""

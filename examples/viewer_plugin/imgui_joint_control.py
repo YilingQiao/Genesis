@@ -1,5 +1,6 @@
 """Interactive joint control example using ImGui overlay."""
 
+import time
 import genesis as gs
 from genesis.ext.pyrender.imgui_overlay import ImGuiOverlayPlugin
 
@@ -21,5 +22,5 @@ scene.viewer._pyrender_viewer.register_plugin(plugin)
 
 while scene.viewer.is_alive():
     if plugin.should_step():
-        for _ in range(max(1, int(plugin.get_speed()))):
-            scene.step()
+        scene.step()
+    time.sleep(0.01)  # Small sleep to prevent busy-waiting and allow GUI responsiveness
