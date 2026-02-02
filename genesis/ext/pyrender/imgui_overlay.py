@@ -5,6 +5,7 @@ Requires: pip install imgui-bundle
 """
 
 import os
+import time
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -49,14 +50,24 @@ class ImGuiOverlayPlugin(ViewerPlugin):
         self._impl = None
         self._io = None
         self._available = False
+        self._init_attempted = False
+        self._last_time = None
         self.paused = False
         self.speed = 1.0
         self._step_requested = False
         self._entity_cache = {}
 
     def build(self, viewer: "Viewer", camera, scene: "Scene"):
-        """Initialize ImGui and cache entity joint data."""
+        """Store references; ImGui initialization is deferred to on_draw (viewer thread)."""
         super().build(viewer, camera, scene)
+        # Cache entity data now (doesn't require OpenGL)
+        self._cache_entity_data()
+
+    def _init_imgui(self):
+        """Initialize ImGui. Must be called from the viewer thread (e.g., in on_draw)."""
+        if self._init_attempted:
+            return
+        self._init_attempted = True
 
         try:
             from imgui_bundle import imgui
@@ -64,23 +75,22 @@ class ImGuiOverlayPlugin(ViewerPlugin):
 
             self._imgui = imgui
             imgui.create_context()
-            self._impl = pyglet_backend.create_renderer(viewer)
+            self._impl = pyglet_backend.create_renderer(self.viewer, attach_callbacks=False)
             self._io = imgui.get_io()
-            self._io.ini_filename = None  # Don't persist window positions
+            self._io.set_ini_filename("")  # Don't persist window positions
             self._setup_style()
             self._available = True
         except ImportError:
             print("ImGuiOverlayPlugin: imgui-bundle not found. Install with: pip install imgui-bundle")
-            return
-
-        self._cache_entity_data()
+        except Exception as e:
+            print(f"ImGuiOverlayPlugin: Failed to initialize ImGui: {e}")
 
     def _setup_style(self):
         """Apply dark theme styling."""
         style = self._imgui.get_style()
         style.window_rounding = 4.0
         style.frame_rounding = 2.0
-        style.colors[self._imgui.Col_.window_bg.value] = (0.1, 0.1, 0.1, 0.9)
+        style.set_color_(self._imgui.Col_.window_bg, (0.1, 0.1, 0.1, 0.9))
 
     def _get_entity_name(self, entity, idx: int) -> str:
         """Extract a human-readable name for an entity, with index for disambiguation."""
@@ -178,47 +188,72 @@ class ImGuiOverlayPlugin(ViewerPlugin):
             return False
         return self._io.want_capture_mouse or self._io.want_capture_keyboard
 
-    # Event handlers - block input when ImGui is capturing
+    # Event handlers - forward input to ImGui and block when capturing
     def on_mouse_press(self, x, y, button, modifiers) -> EVENT_HANDLE_STATE:
+        if self._available:
+            self._impl.on_mouse_press(x, y, button, modifiers)
         return EVENT_HANDLED if self._is_capturing() else None
 
     def on_mouse_drag(self, x, y, dx, dy, buttons, modifiers) -> EVENT_HANDLE_STATE:
+        if self._available:
+            self._impl.on_mouse_drag(x, y, dx, dy, buttons, modifiers)
         return EVENT_HANDLED if self._is_capturing() else None
 
     def on_mouse_release(self, x, y, button, modifiers) -> EVENT_HANDLE_STATE:
+        if self._available:
+            self._impl.on_mouse_release(x, y, button, modifiers)
         return EVENT_HANDLED if self._is_capturing() else None
 
     def on_mouse_scroll(self, x, y, dx, dy) -> EVENT_HANDLE_STATE:
+        if self._available:
+            # imgui backend expects: on_mouse_scroll(x, y, mods, scroll)
+            self._impl.on_mouse_scroll(x, y, 0, dy)
         return EVENT_HANDLED if self._is_capturing() else None
 
     def on_mouse_motion(self, x, y, dx, dy) -> EVENT_HANDLE_STATE:
+        if self._available:
+            self._impl.on_mouse_motion(x, y, dx, dy)
         return EVENT_HANDLED if self._is_capturing() else None
 
     def on_key_press(self, symbol, modifiers) -> EVENT_HANDLE_STATE:
+        if self._available:
+            self._impl.on_key_press(symbol, modifiers)
         return EVENT_HANDLED if self._is_capturing() else None
 
     def on_key_release(self, symbol, modifiers) -> EVENT_HANDLE_STATE:
+        if self._available:
+            self._impl.on_key_release(symbol, modifiers)
+        return EVENT_HANDLED if self._is_capturing() else None
+
+    def on_text(self, text) -> EVENT_HANDLE_STATE:
+        if self._available:
+            self._impl.on_text(text)
         return EVENT_HANDLED if self._is_capturing() else None
 
     def on_resize(self, width, height) -> EVENT_HANDLE_STATE:
-        if not self._available:
-            return None
-        fb_width, fb_height = self.viewer.get_framebuffer_size()
-        if width > 0 and height > 0:
-            self._io.display_framebuffer_scale = (fb_width / width, fb_height / height)
-        self._io.display_size = (fb_width, fb_height)
+        if self._available:
+            self._impl.on_resize(width, height)
         return None
 
     def on_draw(self) -> None:
         """Render ImGui overlay after scene is drawn."""
+        # Lazy initialization: must happen in viewer thread (which owns OpenGL context)
+        if not self._init_attempted:
+            self._init_imgui()
+
         if not self._available:
             return
 
-        # process_inputs may fail on some backends during window transitions
-        try:
-            self._impl.process_inputs()
-        except AttributeError:
-            pass
+        # Update delta time manually (avoid calling pyglet.clock.tick() which conflicts with viewer loop)
+        current_time = time.perf_counter()
+        if self._last_time is not None:
+            self._io.delta_time = current_time - self._last_time
+        else:
+            self._io.delta_time = 1.0 / 60.0
+        if self._io.delta_time <= 0.0:
+            self._io.delta_time = 1.0 / 1000.0
+        self._last_time = current_time
+
         self._imgui.new_frame()
 
         self._render_joint_panel()
@@ -242,7 +277,7 @@ class ImGuiOverlayPlugin(ViewerPlugin):
 
         for entity_idx, data in self._entity_cache.items():
             entity = data["entity"]
-            expanded, _ = imgui.collapsing_header(data["name"])
+            expanded = imgui.collapsing_header(data["name"])
             if not expanded:
                 continue
 
