@@ -154,3 +154,27 @@ uv.lock
 
 # alarm.yml outputs
 outputs/
+.gaac*local*
+
+# Claude Code workspace
+.claude/
+CLAUDE.md
+
+# Coverage data
+.coverage_data/
+coverage.json
+coverage_report/
+coverage_report_test/
+coverage_report.zip
+kernel_coverage.json
+kernel_coverage_test.json
+.kernel_coverage.*.json
+
+# Temporary files
+_tmp/
+workspace/
+debug/
+draft.md
+island_plan.md
+pr_description.md
+.humanize/
