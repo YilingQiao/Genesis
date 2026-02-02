@@ -112,3 +112,45 @@ def test_imgui_overlay_multi_env():
     # Other envs should still have original value
     for env_idx in range(1, 4):
         assert not np.isclose(updated_qpos[env_idx, 0], 0.1)
+
+
+@pytest.mark.required
+def test_imgui_overlay_single_env_update():
+    """Test ImGuiOverlayPlugin handles single-env joint updates without envs_idx.
+
+    Regression test: In single-env scenes (n_envs=0), set_qpos must be called
+    WITHOUT envs_idx parameter, otherwise Scene._sanitize_envs_idx raises.
+    """
+    from genesis.ext.pyrender.imgui_overlay import ImGuiOverlayPlugin
+    import numpy as np
+
+    # Create a single-env scene (default, n_envs not specified)
+    scene = gs.Scene(show_viewer=False)
+    scene.add_entity(gs.morphs.MJCF(file="xml/franka_emika_panda/panda.xml"))
+    scene.build()  # No n_envs = single-env
+
+    plugin = ImGuiOverlayPlugin()
+    plugin.scene = scene
+
+    plugin._cache_entity_data()
+    assert len(plugin._entity_cache) == 1
+
+    entity_data = list(plugin._entity_cache.values())[0]
+    entity = entity_data["entity"]
+
+    # Get qpos - should be 1D for single-env
+    qpos_tensor = entity.get_qpos()
+    qpos_np = qpos_tensor.cpu().numpy()
+
+    # Verify qpos is 1D for single-env
+    assert qpos_np.ndim == 1
+    assert qpos_np.shape[0] == 9  # n_qs for Panda
+
+    # Verify set_qpos without envs_idx works (this would crash before the fix)
+    new_qpos = qpos_np.copy()
+    new_qpos[0] = 0.2  # Change first joint slightly
+    entity.set_qpos(new_qpos)  # No envs_idx - must work for single-env
+
+    # Verify the change was applied
+    updated_qpos = entity.get_qpos().cpu().numpy()
+    assert np.isclose(updated_qpos[0], 0.2)

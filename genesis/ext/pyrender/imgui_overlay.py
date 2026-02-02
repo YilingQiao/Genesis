@@ -236,7 +236,8 @@ class ImGuiOverlayPlugin(ViewerPlugin):
             qpos_np = qpos_tensor.cpu().numpy()
 
             # If multi-env (2D tensor with shape [n_envs, n_qs]), use only env 0
-            if qpos_np.ndim == 2:
+            is_multi_env = qpos_np.ndim == 2
+            if is_multi_env:
                 qpos = qpos_np[0]
             else:
                 qpos = qpos_np.flatten()
@@ -262,8 +263,11 @@ class ImGuiOverlayPlugin(ViewerPlugin):
 
             if changed_any:
                 with self.viewer.render_lock:
-                    # Enforce env 0 only for multi-env scenes
-                    entity.set_qpos(np.array(new_qpos), envs_idx=0)
+                    # Only pass envs_idx for multi-env scenes; single-env doesn't accept it
+                    if is_multi_env:
+                        entity.set_qpos(np.array(new_qpos), envs_idx=0)
+                    else:
+                        entity.set_qpos(np.array(new_qpos))
 
         imgui.end()
 
