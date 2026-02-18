@@ -284,11 +284,7 @@ class ImGuiOverlayPlugin(ViewerPlugin):
 
     def _get_entity_name(self, entity, idx: int) -> str:
         """Extract a human-readable name for an entity, with index for disambiguation."""
-        morph_file = getattr(getattr(entity, "morph", None), "file", None)
-        if morph_file:
-            base_name = os.path.splitext(os.path.basename(morph_file))[0]
-            return f"{base_name} [{idx}]"
-        return f"Entity_{entity.idx}"
+        return getattr(entity, "name", None) or f"Entity_{idx}"
 
     def _cache_entity_data(self):
         """Cache static joint metadata from all rigid entities."""
@@ -1079,7 +1075,9 @@ class ImGuiOverlayPlugin(ViewerPlugin):
 
         for entity_idx, data in self._entity_cache.items():
             entity = data["entity"]
-            expanded = imgui.collapsing_header(f"{data['name']}##entity_{entity_idx}")
+            expanded = imgui.collapsing_header(
+                f"{data['name']}##entity_{entity_idx}", flags=imgui.TreeNodeFlags_.default_open
+            )
             if not expanded:
                 continue
 
