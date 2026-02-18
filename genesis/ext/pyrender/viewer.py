@@ -57,11 +57,15 @@ from .trackball import Trackball
 if TYPE_CHECKING:
     from genesis.vis.rasterizer_context import RasterizerContext
 
+MODULE_DIR = os.path.dirname(__file__)
+
+HELP_TEXT_KEY = Key.I
+HELP_TEXT_KEYBIND_NAME = "toggle_instructions"
+
 
 pyglet.options["shadow_window"] = False
-
-
-MODULE_DIR = os.path.dirname(__file__)
+if pyglet.options.get("dpi_scaling") != "real":
+    pyglet.options["dpi_scaling"] = "real"
 
 HELP_TEXT_KEY = Key.I
 HELP_TEXT_KEYBIND_NAME = "toggle_instructions"
@@ -200,7 +204,7 @@ class Viewer(pyglet.window.Window):
         plane_reflection=False,
         env_separate_rigid=False,
         plugins=None,
-        disable_help_text=False,
+        enable_help_text=True,
         **kwargs,
     ):
         #######################################################################
@@ -344,8 +348,8 @@ class Viewer(pyglet.window.Window):
         self._reset_view()
 
         # Setup help text functionality
-        self._disable_help_text = disable_help_text
-        if not self._disable_help_text:
+        self._enable_help_text = enable_help_text
+        if self._enable_help_text:
             self._collapse_instructions = True
             instr_key_str = str(Key(HELP_TEXT_KEY))
             self._instr_texts: tuple[list[str], list[str]] = (
@@ -366,9 +370,7 @@ class Viewer(pyglet.window.Window):
         #######################################################################
         # Initialize OpenGL context and renderer
         #######################################################################
-        self._renderer = Renderer(
-            self._viewport_size[0], self._viewport_size[1], context.jit, self.render_flags["point_size"]
-        )
+        self._renderer = Renderer(*self._viewport_size, context.jit, self.render_flags["point_size"])
         self._is_active = True
 
         # Starting the viewer would raise an exception if the OpenGL context is invalid for some reason. This exception
@@ -385,7 +387,7 @@ class Viewer(pyglet.window.Window):
             if not self._is_active:
                 if self._exception:
                     raise RuntimeError("Unable to initialize an OpenGL 3+ context.") from self._exception
-                raise OpenGL.error.Error("Invalid OpenGL context.")
+                raise OpenGL.error.Error("Invalid OpenGL context (unknown exception).")
         else:
             if self.auto_start:
                 self.start()
@@ -654,12 +656,18 @@ class Viewer(pyglet.window.Window):
             super().close()
         except Exception:
             pass
-        finally:
+        try:
             super().on_close()
-            try:
-                pyglet.app.exit()
-            except Exception:
-                pass
+        except Exception:
+            pass
+        try:
+            pyglet.app.exit()
+        except Exception:
+            pass
+        try:
+            pyglet.app.platform_event_loop.stop()
+        except Exception:
+            pass
 
         self._offscreen_semaphore.release()
 
@@ -788,8 +796,8 @@ class Viewer(pyglet.window.Window):
 
         self._viewport_size = (width, height)
         self._trackball.resize(self._viewport_size)
-        self._renderer.viewport_width = self._viewport_size[0]
-        self._renderer.viewport_height = self._viewport_size[1]
+        self._renderer.viewport_width = width
+        self._renderer.viewport_height = height
         self.on_draw()
 
     def on_mouse_motion(self, x: int, y: int, dx: int, dy: int) -> EVENT_HANDLE_STATE:
@@ -921,13 +929,14 @@ class Viewer(pyglet.window.Window):
 
         try:
             # Importing tkinter is very slow and not used very often. Let's delay import.
-            from tkinter import Tk, filedialog
+            from tkinter import filedialog
 
-            if root is None:
-                root = Tk()
-                root.withdraw()
             dialog = filedialog.SaveAs(
-                root, initialdir=save_dir, title="Select file save location", filetypes=filetypes
+                parent=None,
+                initialdir=save_dir,
+                title="Select file save location",
+                filetypes=filetypes,
+                defaultextension=".png",
             )
             filename = dialog.show()
         except Exception as e:
@@ -936,7 +945,7 @@ class Viewer(pyglet.window.Window):
 
         if not filename:
             return None
-        return filename
+        return os.path.normpath(filename)
 
     def _save_image(self):
         # Postpone import of OpenCV at runtime to reduce hard system dependencies
@@ -998,9 +1007,9 @@ class Viewer(pyglet.window.Window):
         elif self.render_flags["all_solid"]:
             flags |= RenderFlags.ALL_SOLID
 
-        if self.render_flags["shadows"]:
+        if self.render_flags["shadows"] and not self._is_software:
             flags |= RenderFlags.SHADOWS_ALL
-        if self.render_flags["plane_reflection"]:
+        if self.render_flags["plane_reflection"] and not self._is_software:
             flags |= RenderFlags.REFLECTIVE_FLOOR
         if self.render_flags["env_separate_rigid"]:
             flags |= RenderFlags.ENV_SEPARATE
@@ -1116,38 +1125,82 @@ class Viewer(pyglet.window.Window):
                 confs[1],
             ]
         while confs:
-            # Keep the window invisible for now. It will be displayed only if everything is working fine.
-            # This approach avoids "flickering" when creating and closing an invalid context. Besides, it avoids
-            # "frozen" graphical window during compilation that would be interpreted as as bug by the end-user.
             conf = confs.pop(0)
+
+            # Close any existing context and window
             try:
-                super().__init__(
-                    config=conf,
-                    visible=False,
-                    resizable=True,
-                    width=self._viewport_size[0],
-                    height=self._viewport_size[1],
-                )
+                OpenGL.contextdata.cleanupContext()
+                self.set_visible(False)
+            except Exception:
+                pass
+            try:
+                super().close()
+            except Exception:
+                pass
+
+            try:
+                # Keep the window invisible for now. It will be displayed only if everything is working fine.
+                # This approach avoids "flickering" when creating and closing an invalid context. Besides, it avoids
+                # "frozen" graphical window during compilation that would be interpreted as as bug by the end-user.
+                try:
+                    super().__init__(
+                        config=conf,
+                        visible=False,
+                        resizable=True,
+                        width=self._viewport_size[0],
+                        height=self._viewport_size[1],
+                    )
+                except xlib_exceptions as e:
+                    # Trying again without UTF8 support as a fallback.
+                    # See: https://github.com/pyglet/pyglet/issues/1024
+                    if pyglet.window.xlib._have_utf8:
+                        pyglet.window.xlib._have_utf8 = False
+                        confs.insert(0, conf)
+                    raise
+
+                # Determine if software emulation is being used
+                glinfo = self.context.get_info()
+                renderer = glinfo.get_renderer()
+                self._is_software = any(e in renderer for e in ("llvmpipe", "Apple Software Renderer"))
+
+                # Run the entire rendering pipeline first without window, to make sure that all kernels are compiled
+                self.refresh()
+
+                # At this point, we are all set to display the graphical window
+                self.set_visible(True)
+
+                # Run the entire rendering pipeline once again, as a final validation that everything is fine
+                self.refresh()
+
                 break
-            except xlib_exceptions as e:
-                # Trying again without UTF8 support as a fallback.
-                # See: https://github.com/pyglet/pyglet/issues/1024
-                if not pyglet.window.xlib._have_utf8:
-                    if self._run_in_thread:
-                        self.on_close()
-                        self._exception = e
-                        return
-                    else:
-                        raise RuntimeError("Unable to initialize an OpenGL 3+ context.") from e
-                pyglet.window.xlib._have_utf8 = False
-                confs.insert(0, conf)
-            except (pyglet.window.NoSuchConfigException, pyglet.gl.ContextException) as e:
+            except (
+                pyglet.window.NoSuchConfigException,
+                pyglet.gl.ContextException,
+                pyglet.gl.GLException,
+                OpenGL.error.Error,
+                AttributeError,
+                ArgumentError,
+                RuntimeError,
+                TypeError,  # Race conditions wheno accessing OpenGL resources not binded to context yet
+                Exception,  # Just in case, to avoid deadlock when running in thread
+            ) as e:
                 if not confs:
+                    # It is essential to set the exception before closing the viewer, otherwise the main thread preempt
+                    # execution of this thread and wrongly report unknown exception.
                     if self._run_in_thread:
-                        self.on_close()
                         self._exception = e
+
+                    # Now the viewer can be safely cause to avoid leaving any global OpenGL context or window dangling
+                    try:
+                        self.on_close()
+                    except Exception:
+                        pass
+
+                    if self._run_in_thread:
+                        # Reporting the exception for the main thread to raise it
                         return
                     else:
+                        # Raise the exception right away
                         raise RuntimeError("Unable to initialize an OpenGL 3+ context.") from e
 
         if self._run_in_thread:
@@ -1157,32 +1210,19 @@ class Viewer(pyglet.window.Window):
             pyglet.clock.schedule(Viewer._time_event, self)
 
         # Update window title
-        self.switch_to()
         self.set_caption(self.viewer_flags["window_title"])
-
-        # Run the entire rendering pipeline once, to make sure that everything is fine
-        try:
-            self.refresh()
-        except (OpenGL.error.Error, RuntimeError) as e:
-            # Invalid OpenGL context and crossing threading boundaries. Closing before anything else
-            self.on_close()
-
-            if self._run_in_thread:
-                # Reporting the exception for the main thread to raise it
-                self._exception = e
-                return
-            else:
-                # Raise the exception right away
-                raise
-
-        # At this point, we are all set to display the graphical window if requested, finally!
-        if not pyglet.options["headless"]:
-            self.set_visible(True)
         self.activate()
 
         # The viewer can be considered as fully initialized at this point
         if not self._initialized_event.is_set():
             self._initialized_event.set()
+
+        gs.logger.debug(f"Using interactive viewer OpenGL device: {renderer}")
+        if self._is_software:
+            gs.logger.info(
+                "Software rendering context detected. Shadows and plane reflection not supported. Beware rendering "
+                "will be extremely slow."
+            )
 
         if auto_refresh:
             while self._is_active:
@@ -1220,16 +1260,16 @@ class Viewer(pyglet.window.Window):
                 self._event_loop_step_offscreen()
                 self._offscreen_event.clear()
 
+        self.switch_to()
         pyglet.clock.tick()
 
-        if gs.platform != "Windows":
-            pyglet.app.platform_event_loop.step(0.0)
-        else:
+        if sys.platform == "win32":
             # even changing `platform_event_loop.step(0.0)` to 0.001 causes the viewer to hang on Windows
             # this is a workaround on Windows. not sure if it's correct
             time.sleep(0.001)
+        else:
+            pyglet.app.platform_event_loop.step(0.0)
 
-        self.switch_to()
         self.dispatch_pending_events()
         if self._is_active:
             self.dispatch_events()
@@ -1312,7 +1352,7 @@ class Viewer(pyglet.window.Window):
 
     def _update_instr_texts(self):
         """Update the instruction text based on current keybindings."""
-        if self._disable_help_text:
+        if not self._enable_help_text:
             return
 
         self._key_instr_texts = self._instr_texts[0] + [
@@ -1324,7 +1364,7 @@ class Viewer(pyglet.window.Window):
 
     def _toggle_instructions(self):
         """Toggle the display of keyboard instructions."""
-        if self._disable_help_text:
+        if not self._enable_help_text:
             raise RuntimeError("Instructions display is disabled.")
         self._collapse_instructions = not self._collapse_instructions
 
@@ -1335,7 +1375,7 @@ class Viewer(pyglet.window.Window):
 
     def _render_help_text(self):
         """Render help text and messages on the viewer."""
-        if self._disable_help_text:
+        if not self._enable_help_text:
             return
 
         # Render temporary message

@@ -1,6 +1,8 @@
 import importlib
 import os
+import sys
 import threading
+from traceback import TracebackException
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -44,9 +46,9 @@ class Viewer(RBC):
         self._camera_up = np.asarray(options.camera_up, dtype=gs.np_float)
         self._camera_fov = options.camera_fov
 
-        self._disable_help_text = options.disable_help_text
+        self._enable_help_text = options.enable_help_text
         self._viewer_plugins: list["ViewerPlugin"] = []
-        if not options.disable_default_keybinds:
+        if options.enable_default_keybinds:
             self._viewer_plugins.append(DefaultControlsPlugin())
 
         # Validate viewer options
@@ -74,15 +76,15 @@ class Viewer(RBC):
         # Try all candidate onscreen OpenGL "platforms" if none is specifically requested
         opengl_platform_orig = os.environ.get("PYOPENGL_PLATFORM")
         if opengl_platform_orig is None:
-            if gs.platform == "Windows":
+            if sys.platform == "win32":
                 all_opengl_platforms = ("wgl",)  # same as "native"
-            elif gs.platform == "Linux":
+            elif sys.platform == "linux":
                 # "native" is platform-specific ("egl" or "glx")
                 all_opengl_platforms = ("native", "egl", "glx", "osmesa")
             else:
                 all_opengl_platforms = ("native",)
         else:
-            if opengl_platform_orig == "osmesa" and gs.platform != "Linux":
+            if opengl_platform_orig == "osmesa" and sys.platform != "linux":
                 gs.raise_exception("PYOPENGL_PLATFORM='osmesa' is only supported on Linux OS for now.")
             all_opengl_platforms = (opengl_platform_orig,)
 
@@ -103,7 +105,7 @@ class Viewer(RBC):
                         shadow=self.context.shadow,
                         plane_reflection=self.context.plane_reflection,
                         env_separate_rigid=self.context.env_separate_rigid,
-                        disable_help_text=self._disable_help_text,
+                        enable_help_text=self._enable_help_text,
                         plugins=self._viewer_plugins,
                         viewer_flags={
                             "window_title": f"Genesis {gs.__version__}",
@@ -114,9 +116,10 @@ class Viewer(RBC):
                         self._pyrender_viewer.start(auto_refresh=False)
                     self._pyrender_viewer.wait_until_initialized()
                 break
-            except (OpenGL.error.Error, RuntimeError):
+            except (OpenGL.error.Error, RuntimeError) as e:
                 # Invalid OpenGL context. Trying another platform if any...
-                gs.logger.debug("Invalid OpenGL context.")
+                traceback = TracebackException.from_exception(e)
+                gs.logger.debug("".join(traceback.format()))
 
                 # Clear broken OpenGL context if it went this far
                 if self._pyrender_viewer is not None:
@@ -126,6 +129,7 @@ class Viewer(RBC):
                 if i == len(all_opengl_platforms) - 1:
                     raise
             finally:
+                # Restore original platform systematically
                 del os.environ["PYOPENGL_PLATFORM"]
                 if opengl_platform_orig is not None:
                     os.environ["PYOPENGL_PLATFORM"] = opengl_platform_orig
@@ -134,9 +138,7 @@ class Viewer(RBC):
 
         gs.logger.info(f"Viewer created. Resolution: ~<{self._res[0]}×{self._res[1]}>~, max_FPS: ~<{self._max_FPS}>~.")
 
-        glinfo = self._pyrender_viewer.context.get_info()
-        renderer = glinfo.get_renderer()
-        gs.logger.debug(f"Using interactive viewer OpenGL device: {renderer}")
+        self._is_built = True
 
         self._is_built = True
 
@@ -323,7 +325,7 @@ class Viewer(RBC):
         """
         self._pyrender_viewer.remove_keybind(keybind_name)
 
-    def add_plugin(self, plugin: "ViewerPlugin") -> None:
+    def add_plugin(self, plugin: "ViewerPlugin") -> "ViewerPlugin":
         """
         Add a viewer plugin to the viewer.
 
@@ -335,6 +337,7 @@ class Viewer(RBC):
         self._viewer_plugins.append(plugin)
         if self.is_built:
             self._viewer.register_plugin(plugin)
+        return plugin
 
     # ------------------------------------------------------------------------------------
     # ----------------------------------- properties -------------------------------------
