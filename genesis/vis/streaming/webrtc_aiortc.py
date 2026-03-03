@@ -1,6 +1,8 @@
 import asyncio
+import contextlib
 import json
 import logging
+import threading
 import time
 from fractions import Fraction
 from typing import Any, Sequence
@@ -24,7 +26,7 @@ except ImportError as exc:
         'or `pip install -e ".[webrtc]"`.'
     ) from exc
 
-__all__ = ["GenesisCameraVideoTrack", "WebRTCStreamer"]
+__all__ = ["FrameBuffer", "GenesisCameraVideoTrack", "WebRTCStreamer"]
 
 LOGGER = logging.getLogger(__name__)
 
@@ -62,41 +64,54 @@ def _to_numpy_uint8_rgb(frame_data: Any) -> np.ndarray:
     return np.ascontiguousarray(frame_data.astype(np.uint8))
 
 
+class FrameBuffer:
+    """Thread-safe latest-frame slot shared between the render loop and all video tracks."""
+
+    def __init__(self) -> None:
+        self._frame: np.ndarray | None = None
+        self._lock = threading.Lock()
+
+    def produce(self, frame: np.ndarray) -> None:
+        with self._lock:
+            self._frame = frame
+
+    def consume(self) -> np.ndarray | None:
+        with self._lock:
+            return self._frame
+
+    def clear(self) -> None:
+        with self._lock:
+            self._frame = None
+
+
 class GenesisCameraVideoTrack(VideoStreamTrack):
-    """aiortc track that streams RGB frames from a Genesis camera."""
+    """aiortc track that streams RGB frames from a shared :class:`FrameBuffer`."""
 
     kind = "video"
 
-    def __init__(
-        self,
-        camera: Any,
-        fps: int = 30,
-        max_render_retries: int = 3,
-        retry_backoff_seconds: float = 0.02,
-    ):
+    def __init__(self, frame_buffer: FrameBuffer, width: int, height: int, fps: int = 30):
         super().__init__()
-        if fps <= 0:
+        if int(fps) <= 0:
             raise ValueError("fps must be > 0.")
-        self._camera = camera
+        self._buffer = frame_buffer
+        self._width = int(width)
+        self._height = int(height)
         self._fps = int(fps)
         self._frame_interval = 1.0 / self._fps
         self._next_frame_time: float | None = None
         self._pts = 0
         self._time_base = Fraction(1, self._fps)
-        self._max_render_retries = max(1, int(max_render_retries))
-        self._retry_backoff_seconds = max(0.0, float(retry_backoff_seconds))
-        self._last_good_frame: np.ndarray | None = None
-        self._consecutive_failures = 0
 
     async def recv(self) -> VideoFrame:
         await self._sleep_until_next_frame()
-        frame_array = await self._render_frame_with_retry()
-
-        frame = VideoFrame.from_ndarray(frame_array, format="rgb24")
-        frame.pts = self._pts
-        frame.time_base = self._time_base
+        frame = self._buffer.consume()
+        if frame is None:
+            frame = np.zeros((self._height, self._width, 3), dtype=np.uint8)
+        vf = VideoFrame.from_ndarray(frame, format="rgb24")
+        vf.pts = self._pts
+        vf.time_base = self._time_base
         self._pts += 1
-        return frame
+        return vf
 
     async def _sleep_until_next_frame(self) -> None:
         now = time.monotonic()
@@ -111,41 +126,6 @@ class GenesisCameraVideoTrack(VideoStreamTrack):
         else:
             # Reset the schedule if the producer is lagging too far behind.
             self._next_frame_time = now
-
-    async def _render_frame_with_retry(self) -> np.ndarray:
-        last_error: Exception | None = None
-
-        for attempt in range(1, self._max_render_retries + 1):
-            try:
-                rgb_arr, _, _, _ = self._camera.render(
-                    rgb=True,
-                    depth=False,
-                    segmentation=False,
-                    normal=False,
-                    force_render=False,
-                )
-                frame = _to_numpy_uint8_rgb(rgb_arr)
-                self._last_good_frame = frame
-                self._consecutive_failures = 0
-                return frame
-            except Exception as exc:
-                last_error = exc
-                if attempt < self._max_render_retries:
-                    await asyncio.sleep(self._retry_backoff_seconds * attempt)
-
-        self._consecutive_failures += 1
-        if self._consecutive_failures in (1, 10) or self._consecutive_failures % 50 == 0:
-            LOGGER.warning(
-                "Camera render failed %s time(s) in a row; reusing the previous frame. Last error: %s",
-                self._consecutive_failures,
-                last_error,
-            )
-
-        if self._last_good_frame is not None:
-            return self._last_good_frame
-
-        width, height = self._camera.res
-        return np.zeros((height, width, 3), dtype=np.uint8)
 
 
 class WebRTCStreamer:
@@ -165,6 +145,8 @@ class WebRTCStreamer:
         self._camera = camera
         self._host = host
         self._port = int(port)
+        if int(fps) <= 0:
+            raise ValueError("fps must be > 0.")
         self._fps = int(fps)
         self._token = token
         self._video_bitrate_bps = int(video_bitrate_bps) if video_bitrate_bps is not None else None
@@ -174,6 +156,10 @@ class WebRTCStreamer:
         self._ice_servers_json = self._normalize_ice_servers_for_browser(ice_servers)
         rtc_ice_servers = self._parse_ice_servers(ice_servers)
         self._rtc_configuration = RTCConfiguration(iceServers=rtc_ice_servers)
+
+        self._frame_buffer = FrameBuffer()
+        self._stopped = False
+        self._render_task: asyncio.Task | None = None
 
         self._peer_connections: set[RTCPeerConnection] = set()
         self._app: web.Application | None = None
@@ -209,14 +195,38 @@ class WebRTCStreamer:
         await self._runner.setup()
         self._site = web.TCPSite(self._runner, self._host, self._port)
         await self._site.start()
+        self._stopped = False
+        self._render_task = asyncio.create_task(self._render_loop())
 
     async def stop(self) -> None:
+        self._stopped = True
+        if self._render_task is not None:
+            self._render_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._render_task
+            self._render_task = None
+        self._frame_buffer.clear()
         self._shutdown_requested.set()
         if self._runner is None:
             return
         await self._runner.cleanup()
         self._runner = None
         self._site = None
+
+    async def _render_loop(self) -> None:
+        dt = 1.0 / self._fps
+        while not self._stopped:
+            try:
+                rgb, _, _, _ = self._camera.render(
+                    rgb=True, depth=False, segmentation=False, normal=False, force_render=True
+                )
+                frame = _to_numpy_uint8_rgb(rgb)
+                self._frame_buffer.produce(frame)
+            except Exception as exc:
+                if self._stopped:
+                    break
+                LOGGER.warning("Render failed: %s", exc)
+            await asyncio.sleep(dt)
 
     def run(self) -> None:
         asyncio.run(self._run_forever())
@@ -275,7 +285,8 @@ class WebRTCStreamer:
             LOGGER.info("ICE connection state changed to %s", peer_connection.iceConnectionState)
 
         try:
-            video_track = GenesisCameraVideoTrack(self._camera, fps=self._fps)
+            width, height = self._camera.res
+            video_track = GenesisCameraVideoTrack(self._frame_buffer, width, height, fps=self._fps)
             sender = peer_connection.addTrack(video_track)
             self._prefer_h264_codec(peer_connection, sender)
             await self._configure_sender(sender)

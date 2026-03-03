@@ -154,3 +154,29 @@ uv.lock
 
 # alarm.yml outputs
 outputs/
+.gaac*local*
+
+# Claude Code
+.claude/
+CLAUDE.md
+
+# Coverage artifacts
+.coverage_data/
+coverage.json
+coverage_report/
+coverage_report_test/
+coverage_report.zip
+.kernel_coverage*.json
+kernel_coverage*.json
+
+# Misc workspace/temp artifacts
+_tmp/
+debug/
+workspace/
+.humanize/
+apollo_scene.json
+draft.md
+island_plan.md
+pr_description.md
+docs/plans/
+examples/rigid/single_franka_custom_intrinsics.py

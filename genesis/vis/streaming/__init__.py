@@ -2,6 +2,7 @@ from importlib import import_module
 from typing import TYPE_CHECKING, Any
 
 __all__ = [
+    "FrameBuffer",
     "GenesisCameraVideoTrack",
     "WebRTCStreamer",
     "add_streamer_cli_args",
@@ -13,7 +14,7 @@ __all__ = [
 
 
 def __getattr__(name: str) -> Any:
-    if name in ("GenesisCameraVideoTrack", "WebRTCStreamer"):
+    if name in ("FrameBuffer", "GenesisCameraVideoTrack", "WebRTCStreamer"):
         module = import_module(".webrtc_aiortc", __name__)
         return getattr(module, name)
     if name in (
@@ -36,4 +37,4 @@ if TYPE_CHECKING:
         resolve_stream_token,
         video_bitrate_bps_from_args,
     )
-    from .webrtc_aiortc import GenesisCameraVideoTrack, WebRTCStreamer
+    from .webrtc_aiortc import FrameBuffer, GenesisCameraVideoTrack, WebRTCStreamer
