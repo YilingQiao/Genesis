@@ -8,6 +8,7 @@ import OpenGL
 import genesis as gs
 from genesis.repr_base import RBC
 from genesis.ext import pyrender
+from genesis.ext.pyrender.constants import RenderFlags
 
 
 class Rasterizer(RBC):
@@ -54,7 +55,9 @@ class Rasterizer(RBC):
         self._camera_targets[camera.uid] = pyrender.Renderer(camera.res[0], camera.res[1], self._context.jit)
 
     def update_camera(self, camera):
-        self._camera_nodes[camera.uid].camera.yfov = np.deg2rad(camera.fov)
+        cam_obj = self._camera_nodes[camera.uid].camera
+        if hasattr(cam_obj, "yfov"):
+            cam_obj.yfov = np.deg2rad(camera.fov)
         self._context.set_node_pose(self._camera_nodes[camera.uid], camera.transform)
         self._context.update_camera_frustum(camera)
 
@@ -80,6 +83,9 @@ class Rasterizer(RBC):
             self._context.jit.update_buffer(self._context.buffer)
             self._context.buffer.clear()
 
+            # Extra render flags (e.g. face/vertex normals) set by web GUI
+            extra_flags = getattr(self._context, "_extra_render_flags", RenderFlags.NONE)
+
             # Render
             try:
                 if rgb or depth or normal:
@@ -94,6 +100,7 @@ class Rasterizer(RBC):
                         depth=depth,
                         plane_reflection=rgb and self._context.plane_reflection,
                         shadow=rgb and self._context.shadow,
+                        flags=extra_flags,
                     )
 
                 if segmentation:
