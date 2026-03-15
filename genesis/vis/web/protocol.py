@@ -23,6 +23,8 @@ class MsgType(str, Enum):
     CAMERA_UPDATE = "camera_update"
     ENTITY_UPDATE = "entity_update"
     VIS_TOGGLE = "vis_toggle"
+    SET_RESOLUTION = "set_resolution"
+    SET_TARGET_FPS = "set_target_fps"
     # Server -> Client
     STATE_UPDATE = "state_update"
     SCENE_INFO = "scene_info"
@@ -139,16 +141,20 @@ def build_scene_info(scene):
     # Number of environments
     n_envs = getattr(scene, "n_envs", 1)
 
+    # Simulation timestep
+    sim_dt = float(getattr(scene, "dt", 0.01))
+
     return {
         "type": MsgType.SCENE_INFO.value,
         "entities": entities,
         "vis_state": vis_state,
         "camera_state": camera_state,
         "n_envs": n_envs,
+        "sim_dt": sim_dt,
     }
 
 
-def build_state_update(sim_time=0.0, step=0, fps=0.0, paused=False, camera_state=None):
+def build_state_update(sim_time=0.0, step=0, fps=0.0, paused=False, camera_state=None, entity_positions=None):
     """Build a STATE_UPDATE message with current simulation status."""
     msg = {
         "type": MsgType.STATE_UPDATE.value,
@@ -159,4 +165,6 @@ def build_state_update(sim_time=0.0, step=0, fps=0.0, paused=False, camera_state
     }
     if camera_state is not None:
         msg["camera_state"] = camera_state
+    if entity_positions is not None:
+        msg["entity_positions"] = entity_positions
     return msg

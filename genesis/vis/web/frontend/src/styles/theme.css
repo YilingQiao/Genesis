@@ -1,0 +1,152 @@
+:root {
+  /* Base dark viewport background */
+  --bg-base: #0a0b10;
+
+  /* Glass panel colors (light semi-transparent) */
+  --bg-panel: rgba(255, 255, 255, 0.06);
+  --bg-panel-alt: rgba(255, 255, 255, 0.04);
+  --bg-surface: rgba(255, 255, 255, 0.08);
+  --bg-hover: rgba(255, 255, 255, 0.12);
+
+  /* Accent */
+  --accent: #4b7cf3;
+  --accent-hover: #6b94ff;
+  --accent-dim: #2d4a8a;
+  --accent-soft: rgba(75, 124, 243, 0.15);
+
+  /* Text (light on glass) */
+  --text: rgba(255, 255, 255, 0.92);
+  --text-muted: rgba(255, 255, 255, 0.55);
+  --text-dim: rgba(255, 255, 255, 0.35);
+
+  /* Borders (subtle light) */
+  --border: rgba(255, 255, 255, 0.08);
+  --border-light: rgba(255, 255, 255, 0.15);
+
+  /* Status */
+  --success: #4caf50;
+  --danger: #e74c3c;
+  --warning: #f0a030;
+
+  /* Radii */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 20px;
+  --radius-xl: 28px;
+
+  --transition: 0.15s ease;
+  --font: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+
+*,
+*::before,
+*::after {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body, #app {
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  font-family: var(--font);
+  background: var(--bg-base);
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-size: 13px;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 4px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 2px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+/* Number input styling */
+input[type="number"] {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 11px;
+  padding: 5px 8px;
+  outline: none;
+  font-variant-numeric: tabular-nums;
+  -moz-appearance: textfield;
+  transition: border-color var(--transition);
+}
+
+input[type="number"]:focus {
+  border-color: var(--accent);
+}
+
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  opacity: 1;
+}
+
+/* Range slider styling */
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 3px;
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 2px;
+  outline: none;
+  cursor: pointer;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: none;
+  cursor: pointer;
+  transition: transform var(--transition), box-shadow var(--transition);
+  box-shadow: 0 0 0 3px rgba(75, 124, 243, 0.2);
+}
+
+input[type="range"]::-webkit-slider-thumb:hover {
+  transform: scale(1.2);
+  box-shadow: 0 0 0 5px rgba(75, 124, 243, 0.3);
+}
+
+input[type="range"]::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: none;
+  cursor: pointer;
+}
+
+/* Section header styling */
+.section-header {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: var(--text);
+  padding: 16px 18px 10px;
+}

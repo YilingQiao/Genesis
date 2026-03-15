@@ -137,6 +137,8 @@ genesis = [
     "ext/pyrender/fonts/*",
     "ext/pyrender/shaders/*",
     "ext/VolumeSampling",
+    "vis/web/static/*",
+    "vis/web/static/assets/*",
 ]
 
 [tool.black]

@@ -24,7 +24,7 @@ from genesis.vis.scene_ops import (
 )
 
 from .frame_producer import FrameProducer
-from .protocol import MsgType, build_scene_info, build_state_update
+from .protocol import MsgType, build_scene_info, build_state_update, _sanitize_floats
 
 _STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
 
@@ -72,6 +72,10 @@ class GenesisWebServer:
         self._frame_count = 0
         self._fps_time = time.monotonic()
         self._fps = 0.0
+
+        # Target FPS limiter (0 = unlimited)
+        self._target_fps = 0
+        self._last_frame_time = 0.0
 
         self._app = None
         self._server = None
@@ -161,7 +165,17 @@ class GenesisWebServer:
         """Called from main thread after scene.step().
 
         Captures a frame and schedules broadcast to all WebSocket clients.
+        Respects target FPS by sleeping if producing frames too fast.
         """
+        # Target FPS limiter
+        if self._target_fps > 0:
+            now = time.monotonic()
+            min_interval = 1.0 / self._target_fps
+            elapsed = now - self._last_frame_time
+            if elapsed < min_interval:
+                time.sleep(min_interval - elapsed)
+            self._last_frame_time = time.monotonic()
+
         self.producer.produce_frame()
         self._update_fps()
 
@@ -211,16 +225,36 @@ class GenesisWebServer:
                 # Transpose to column-major for JavaScript (OpenGL convention)
                 camera_state["view_matrix"] = view_mat.T.flatten().tolist()
             except Exception:
-                gs.logger.debug("Failed to compute view matrix", exc_info=True)
+                gs.logger.debug("Failed to compute view matrix")
             try:
                 rasterizer = self.scene.visualizer._rasterizer
                 cam_node = rasterizer._camera_nodes[camera.uid]
                 proj = cam_node.camera.get_projection_matrix(width=camera.res[0], height=camera.res[1])
                 camera_state["proj_matrix"] = proj.T.flatten().tolist()
             except Exception:
-                gs.logger.debug("Failed to compute projection matrix", exc_info=True)
+                gs.logger.debug("Failed to compute projection matrix")
         except Exception:
-            gs.logger.debug("Failed to build camera state", exc_info=True)
+            gs.logger.debug("Failed to build camera state")
+
+        # Gather current entity qpos for gizmo tracking
+        entity_positions = None
+        try:
+            ep = []
+            for entity in self.scene.entities:
+                if hasattr(entity, "n_dofs") and entity.n_dofs > 0:
+                    qpos = entity.get_qpos()
+                    if hasattr(qpos, "cpu"):
+                        qpos = qpos.cpu().numpy()
+                    ep.append(
+                        {
+                            "idx": entity.idx,
+                            "qpos": _sanitize_floats(qpos).tolist(),
+                        }
+                    )
+            if ep:
+                entity_positions = ep
+        except Exception:
+            pass
 
         state_json = json.dumps(
             build_state_update(
@@ -229,6 +263,7 @@ class GenesisWebServer:
                 fps=self._fps,
                 paused=self._paused,
                 camera_state=camera_state,
+                entity_positions=entity_positions,
             )
         )
 
@@ -263,6 +298,10 @@ class GenesisWebServer:
             self._handle_entity_update(cmd)
         elif msg_type == MsgType.VIS_TOGGLE:
             self._handle_vis_toggle(cmd)
+        elif msg_type == MsgType.SET_RESOLUTION:
+            self._handle_set_resolution(cmd)
+        elif msg_type == MsgType.SET_TARGET_FPS:
+            self._handle_set_target_fps(cmd)
 
     def _handle_sim_control(self, cmd):
         action = cmd.get("action")
@@ -274,6 +313,27 @@ class GenesisWebServer:
             self._step_requested = True
         elif action == "reset":
             self._reset_requested = True
+
+    def _handle_set_resolution(self, cmd):
+        """Update the render resolution from the client viewport size."""
+        width = cmd.get("width")
+        height = cmd.get("height")
+        if not isinstance(width, int) or not isinstance(height, int):
+            return
+        # Clamp to reasonable range
+        width = max(320, min(3840, width))
+        height = max(240, min(2160, height))
+        try:
+            camera = self.scene.visualizer.cameras[0]
+            camera.set_resolution((width, height))
+        except Exception:
+            gs.logger.debug("Failed to set resolution")
+
+    def _handle_set_target_fps(self, cmd):
+        """Set the target FPS limiter."""
+        fps = cmd.get("fps")
+        if isinstance(fps, (int, float)) and not isinstance(fps, bool):
+            self._target_fps = max(0, min(240, fps))
 
     def _handle_camera_update(self, cmd):
         """Apply camera manipulation commands."""
@@ -299,7 +359,7 @@ class GenesisWebServer:
                 try:
                     camera._fov = float(fov)
                 except Exception:
-                    gs.logger.debug("Failed to set camera FOV", exc_info=True)
+                    gs.logger.debug("Failed to set camera FOV")
         elif action == "reset":
             try:
                 if self._initial_camera_pos is not None:
@@ -307,10 +367,10 @@ class GenesisWebServer:
                         pos=self._initial_camera_pos.copy(),
                         lookat=self._initial_camera_lookat.copy(),
                     )
-                if self._initial_camera_fov is not None and hasattr(camera, "fov"):
-                    camera.fov = self._initial_camera_fov
+                if self._initial_camera_fov is not None:
+                    camera._fov = float(self._initial_camera_fov)
             except Exception:
-                gs.logger.debug("Failed to reset camera", exc_info=True)
+                gs.logger.debug("Failed to reset camera")
 
     def _apply_orbit(self, camera, cmd):
         """Orbit the camera around its lookat point."""
@@ -346,7 +406,7 @@ class GenesisWebServer:
             dtype=np.float32,
         )
 
-        camera.set_pose(pos=lookat + new_offset, lookat=lookat)
+        camera.set_pose(pos=lookat + new_offset, lookat=lookat, up=np.array([0, 0, 1], dtype=np.float32))
 
     def _apply_pan(self, camera, cmd):
         """Pan the camera (translate both pos and lookat)."""
@@ -357,7 +417,7 @@ class GenesisWebServer:
 
         pos = camera.pos.copy()
         lookat = camera.lookat.copy()
-        up = camera.up.copy()
+        up = np.array([0, 0, 1], dtype=np.float32)
 
         forward = lookat - pos
         forward = forward / (np.linalg.norm(forward) + 1e-8)
@@ -366,7 +426,7 @@ class GenesisWebServer:
         cam_up = np.cross(right, forward)
 
         offset = right * dx + cam_up * dy
-        camera.set_pose(pos=pos + offset, lookat=lookat + offset)
+        camera.set_pose(pos=pos + offset, lookat=lookat + offset, up=up)
 
     def _apply_zoom(self, camera, cmd):
         """Zoom by moving the camera closer/farther from lookat."""
@@ -485,7 +545,7 @@ class GenesisWebServer:
             if ctx is not None:
                 refresh_visual_transforms(self.scene, ctx)
         except Exception:
-            gs.logger.debug("Failed to update visual transforms", exc_info=True)
+            gs.logger.debug("Failed to update visual transforms")
 
     def _switch_entity_vis_mode(self, entity, new_mode):
         """Switch entity between 'visual' and 'collision' rendering."""
@@ -494,7 +554,7 @@ class GenesisWebServer:
             if ctx is not None:
                 switch_entity_vis_mode(self.scene, ctx, entity, new_mode)
         except Exception:
-            gs.logger.debug("Failed to switch entity vis mode", exc_info=True)
+            gs.logger.debug("Failed to switch entity vis mode")
 
     def _set_entity_wireframe(self, entity, entity_idx, enable):
         """Toggle wireframe rendering for all geom nodes of an entity."""
@@ -504,14 +564,14 @@ class GenesisWebServer:
                 self._entity_wireframe[entity_idx] = enable
                 set_entity_wireframe(ctx, entity, enable)
         except Exception:
-            gs.logger.debug("Failed to set entity wireframe", exc_info=True)
+            gs.logger.debug("Failed to set entity wireframe")
 
     def _set_entity_contact_viz(self, entity, enable):
         """Toggle contact visualization for an entity and its links."""
         try:
             set_entity_contact_viz(entity, enable)
         except Exception:
-            gs.logger.debug("Failed to set contact visualization", exc_info=True)
+            gs.logger.debug("Failed to set contact visualization")
 
     def _handle_vis_toggle(self, cmd):
         """Toggle visualization options via the rasterizer context."""
@@ -560,7 +620,7 @@ class GenesisWebServer:
                         ctx.off_link_frame()
                         ctx.on_link_frame()
             except Exception:
-                gs.logger.debug("Failed to resize link frame", exc_info=True)
+                gs.logger.debug("Failed to resize link frame")
 
     def _toggle_wireframe(self, enable):
         """Toggle wireframe rendering for all mesh primitives."""
@@ -593,7 +653,7 @@ class GenesisWebServer:
             else:
                 ctx._extra_render_flags = current & ~flag
         except Exception:
-            gs.logger.debug("Failed to toggle render flag", exc_info=True)
+            gs.logger.debug("Failed to toggle render flag")
 
     def _toggle_orthographic(self, enable):
         """Switch between perspective and orthographic projection."""
@@ -627,7 +687,7 @@ class GenesisWebServer:
                     camera_node.camera = self._perspective_camera
                     self._perspective_camera = None
         except Exception:
-            gs.logger.debug("Failed to toggle orthographic projection", exc_info=True)
+            gs.logger.debug("Failed to toggle orthographic projection")
 
     # ------------------------------------------------------------------
     # Server lifecycle
@@ -641,7 +701,7 @@ class GenesisWebServer:
             self._initial_camera_lookat = camera.lookat.copy()
             self._initial_camera_fov = getattr(camera, "fov", 30.0)
         except Exception:
-            gs.logger.debug("Failed to capture initial camera state", exc_info=True)
+            gs.logger.debug("Failed to capture initial camera state")
 
     def start(self):
         """Start the web server in a background daemon thread."""

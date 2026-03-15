@@ -1,5 +1,6 @@
 logs/
 tmp/
+node_modules/
 MUJOCO_LOG.TXT
 imgui.ini
 .polyscope.ini
@@ -154,3 +155,30 @@ uv.lock
 
 # alarm.yml outputs
 outputs/
+
+# Claude Code / Humanize / Superpowers work files
+.claude/
+.humanize/
+.superpowers/
+.gaac-loop.local/
+CLAUDE.md
+
+# Coverage and debug artifacts
+.coverage_data/
+coverage.json
+coverage_report.zip
+coverage_report/
+coverage_report_test/
+kernel_coverage.json
+kernel_coverage_test.json
+.kernel_coverage.*.json
+debug/
+
+# Temp/work files
+_tmp/
+workspace/
+draft.md
+island_plan.md
+pr_description.md
+tests/conftest.py.bak
+docs/superpowers/
