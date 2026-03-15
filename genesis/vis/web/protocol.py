@@ -148,7 +148,7 @@ def build_scene_info(scene):
     }
 
 
-def build_state_update(sim_time=0.0, step=0, fps=0.0, paused=False, camera_state=None):
+def build_state_update(sim_time=0.0, step=0, fps=0.0, paused=False, camera_state=None, entity_positions=None):
     """Build a STATE_UPDATE message with current simulation status."""
     msg = {
         "type": MsgType.STATE_UPDATE.value,
@@ -159,4 +159,6 @@ def build_state_update(sim_time=0.0, step=0, fps=0.0, paused=False, camera_state
     }
     if camera_state is not None:
         msg["camera_state"] = camera_state
+    if entity_positions is not None:
+        msg["entity_positions"] = entity_positions
     return msg
