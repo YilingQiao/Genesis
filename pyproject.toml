@@ -96,6 +96,11 @@ dev = [
     # Used for code formatting during commits
     "pre_commit",
 ]
+web = [
+    "fastapi",
+    "uvicorn[standard]",
+    "websockets",
+]
 docs = [
     # Note that currently sphinx 7 does not work, so we must use v6.2.1. Once fixed we can use a later version.
     # See https://github.com/kivy/kivy/issues/8230 which tracks this issue.

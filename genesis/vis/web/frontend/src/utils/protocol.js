@@ -1,6 +1,10 @@
 /**
  * WebSocket message protocol constants.
  * Must match genesis/vis/web/protocol.py MsgType values.
+ *
+ * TypeScript interfaces are auto-generated from Pydantic models:
+ *   npm run generate:types
+ * See: ../types/protocol.generated.d.ts
  */
 
 // Server -> Client

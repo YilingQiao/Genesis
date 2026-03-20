@@ -24,7 +24,18 @@ from genesis.vis.scene_ops import (
 )
 
 from .frame_producer import FrameProducer
-from .protocol import MsgType, build_scene_info, build_state_update, _sanitize_floats
+from .protocol import (
+    build_scene_info,
+    build_state_update,
+    parse_client_message,
+    sanitize_floats,
+    CameraUpdateMsg,
+    EntityUpdateMsg,
+    SetResolutionMsg,
+    SetTargetFpsMsg,
+    SimControlMsg,
+    VisToggleMsg,
+)
 
 _STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
 
@@ -111,10 +122,12 @@ class GenesisWebServer:
                 # Handle incoming control messages
                 async for raw in ws.iter_text():
                     try:
-                        msg = json.loads(raw)
+                        data = json.loads(raw)
                     except json.JSONDecodeError:
                         continue
-                    self._enqueue_command(msg)
+                    parsed = parse_client_message(data)
+                    if parsed is not None:
+                        self._enqueue_command(parsed)
             except WebSocketDisconnect:
                 pass
             finally:
@@ -248,7 +261,7 @@ class GenesisWebServer:
                     ep.append(
                         {
                             "idx": entity.idx,
-                            "qpos": _sanitize_floats(qpos).tolist(),
+                            "qpos": sanitize_floats(qpos).tolist(),
                         }
                     )
             if ep:
@@ -287,80 +300,67 @@ class GenesisWebServer:
     # ------------------------------------------------------------------
 
     def _handle_command(self, cmd):
-        """Apply a single command dict on the main thread."""
-        msg_type = cmd.get("type")
-
-        if msg_type == MsgType.SIM_CONTROL:
+        """Apply a single validated command on the main thread."""
+        if isinstance(cmd, SimControlMsg):
             self._handle_sim_control(cmd)
-        elif msg_type == MsgType.CAMERA_UPDATE:
+        elif isinstance(cmd, CameraUpdateMsg):
             self._handle_camera_update(cmd)
-        elif msg_type == MsgType.ENTITY_UPDATE:
+        elif isinstance(cmd, EntityUpdateMsg):
             self._handle_entity_update(cmd)
-        elif msg_type == MsgType.VIS_TOGGLE:
+        elif isinstance(cmd, VisToggleMsg):
             self._handle_vis_toggle(cmd)
-        elif msg_type == MsgType.SET_RESOLUTION:
+        elif isinstance(cmd, SetResolutionMsg):
             self._handle_set_resolution(cmd)
-        elif msg_type == MsgType.SET_TARGET_FPS:
+        elif isinstance(cmd, SetTargetFpsMsg):
             self._handle_set_target_fps(cmd)
 
-    def _handle_sim_control(self, cmd):
-        action = cmd.get("action")
-        if action == "pause":
+    def _handle_sim_control(self, cmd: SimControlMsg):
+        if cmd.action == "pause":
             self._paused = True
-        elif action == "play":
+        elif cmd.action == "play":
             self._paused = False
-        elif action == "step":
+        elif cmd.action == "step":
             self._step_requested = True
-        elif action == "reset":
+        elif cmd.action == "reset":
             self._reset_requested = True
 
-    def _handle_set_resolution(self, cmd):
+    def _handle_set_resolution(self, cmd: SetResolutionMsg):
         """Update the render resolution from the client viewport size."""
-        width = cmd.get("width")
-        height = cmd.get("height")
-        if not isinstance(width, int) or not isinstance(height, int):
-            return
         # Clamp to reasonable range
-        width = max(320, min(3840, width))
-        height = max(240, min(2160, height))
+        width = max(320, min(3840, cmd.width))
+        height = max(240, min(2160, cmd.height))
         try:
             camera = self.scene.visualizer.cameras[0]
             camera.set_resolution((width, height))
         except Exception:
             gs.logger.debug("Failed to set resolution")
 
-    def _handle_set_target_fps(self, cmd):
+    def _handle_set_target_fps(self, cmd: SetTargetFpsMsg):
         """Set the target FPS limiter."""
-        fps = cmd.get("fps")
-        if isinstance(fps, (int, float)) and not isinstance(fps, bool):
-            self._target_fps = max(0, min(240, fps))
+        self._target_fps = max(0, min(240, cmd.fps))
 
-    def _handle_camera_update(self, cmd):
+    def _handle_camera_update(self, cmd: CameraUpdateMsg):
         """Apply camera manipulation commands."""
         if not self.scene.visualizer.cameras:
             return
         camera = self.scene.visualizer.cameras[0]
-        action = cmd.get("action")
 
-        if action == "orbit":
+        if cmd.action == "orbit":
             self._apply_orbit(camera, cmd)
-        elif action == "pan":
+        elif cmd.action == "pan":
             self._apply_pan(camera, cmd)
-        elif action == "zoom":
+        elif cmd.action == "zoom":
             self._apply_zoom(camera, cmd)
-        elif action == "set_pose":
-            pos = cmd.get("pos")
-            lookat = cmd.get("lookat")
-            if pos is not None or lookat is not None:
-                camera.set_pose(pos=pos, lookat=lookat)
-        elif action == "set_fov":
-            fov = cmd.get("fov")
-            if fov is not None:
+        elif cmd.action == "set_pose":
+            if cmd.pos is not None or cmd.lookat is not None:
+                camera.set_pose(pos=cmd.pos, lookat=cmd.lookat)
+        elif cmd.action == "set_fov":
+            if cmd.fov is not None:
                 try:
-                    camera._fov = float(fov)
+                    camera._fov = float(cmd.fov)
                 except Exception:
                     gs.logger.debug("Failed to set camera FOV")
-        elif action == "reset":
+        elif cmd.action == "reset":
             try:
                 if self._initial_camera_pos is not None:
                     camera.set_pose(
@@ -372,10 +372,10 @@ class GenesisWebServer:
             except Exception:
                 gs.logger.debug("Failed to reset camera")
 
-    def _apply_orbit(self, camera, cmd):
+    def _apply_orbit(self, camera, cmd: CameraUpdateMsg):
         """Orbit the camera around its lookat point."""
-        d_azimuth = cmd.get("d_azimuth", 0.0)
-        d_elevation = cmd.get("d_elevation", 0.0)
+        d_azimuth = cmd.d_azimuth if cmd.d_azimuth is not None else 0.0
+        d_elevation = cmd.d_elevation if cmd.d_elevation is not None else 0.0
         if d_azimuth == 0.0 and d_elevation == 0.0:
             return
 
@@ -408,10 +408,10 @@ class GenesisWebServer:
 
         camera.set_pose(pos=lookat + new_offset, lookat=lookat, up=np.array([0, 0, 1], dtype=np.float32))
 
-    def _apply_pan(self, camera, cmd):
+    def _apply_pan(self, camera, cmd: CameraUpdateMsg):
         """Pan the camera (translate both pos and lookat)."""
-        dx = cmd.get("dx", 0.0)
-        dy = cmd.get("dy", 0.0)
+        dx = cmd.dx if cmd.dx is not None else 0.0
+        dy = cmd.dy if cmd.dy is not None else 0.0
         if dx == 0.0 and dy == 0.0:
             return
 
@@ -428,9 +428,9 @@ class GenesisWebServer:
         offset = right * dx + cam_up * dy
         camera.set_pose(pos=pos + offset, lookat=lookat + offset, up=up)
 
-    def _apply_zoom(self, camera, cmd):
+    def _apply_zoom(self, camera, cmd: CameraUpdateMsg):
         """Zoom by moving the camera closer/farther from lookat."""
-        factor = cmd.get("factor", 1.0)
+        factor = cmd.factor if cmd.factor is not None else 1.0
         if factor == 1.0:
             return
 
@@ -440,15 +440,9 @@ class GenesisWebServer:
         offset = pos - lookat
         camera.set_pose(pos=lookat + offset * factor, lookat=lookat)
 
-    def _handle_entity_update(self, cmd):
+    def _handle_entity_update(self, cmd: EntityUpdateMsg):
         """Apply entity state changes (qpos, vis_mode, wireframe, contacts)."""
-        entity_idx = cmd.get("entity_idx")
-        # Use type() not isinstance() to reject bool (bool is a subclass of int).
-        # None is also rejected here (type(None) is NoneType, not int).
-        if type(entity_idx) is not int:
-            gs.logger.warning(f"Invalid entity_idx type: {type(entity_idx).__name__}")
-            return
-
+        entity_idx = cmd.entity_idx
         entities = self.scene.entities
         if entity_idx < 0 or entity_idx >= len(entities):
             return
@@ -456,24 +450,18 @@ class GenesisWebServer:
         entity = entities[entity_idx]
 
         # Per-entity vis mode switch
-        vis_mode = cmd.get("vis_mode")
-        if vis_mode is not None:
-            if vis_mode not in ("visual", "collision"):
-                gs.logger.warning(f"Invalid vis_mode: {vis_mode!r}")
-                return
-            self._switch_entity_vis_mode(entity, vis_mode)
+        if cmd.vis_mode is not None:
+            self._switch_entity_vis_mode(entity, cmd.vis_mode)
             return
 
         # Per-entity wireframe toggle
-        wireframe = cmd.get("wireframe")
-        if wireframe is not None:
-            self._set_entity_wireframe(entity, entity_idx, bool(wireframe))
+        if cmd.wireframe is not None:
+            self._set_entity_wireframe(entity, entity_idx, cmd.wireframe)
             return
 
         # Contact visualization toggle
-        contact_viz = cmd.get("contact_viz")
-        if contact_viz is not None:
-            self._set_entity_contact_viz(entity, bool(contact_viz))
+        if cmd.contact_viz is not None:
+            self._set_entity_contact_viz(entity, cmd.contact_viz)
             return
 
         # DOF/qpos updates require set_qpos
@@ -481,16 +469,12 @@ class GenesisWebServer:
             return
 
         # Full qpos update
-        qpos = cmd.get("qpos")
-        if qpos is not None:
-            if not isinstance(qpos, list):
-                gs.logger.warning(f"Invalid qpos type: {type(qpos).__name__}")
-                return
+        if cmd.qpos is not None:
+            qpos = cmd.qpos
             # Quaternion normalization
-            quat_groups = cmd.get("quat_groups")
-            if quat_groups and cmd.get("normalize_quats"):
+            if cmd.quat_groups and cmd.normalize_quats:
                 qpos = list(qpos)
-                for start, end in quat_groups:
+                for start, end in cmd.quat_groups:
                     q = np.array(qpos[start:end])
                     norm = np.linalg.norm(q)
                     if norm > 1e-8:
@@ -506,16 +490,7 @@ class GenesisWebServer:
             return
 
         # Single DOF slider update
-        dof_idx = cmd.get("dof_idx")
-        value = cmd.get("value")
-        if dof_idx is not None and value is not None:
-            if type(dof_idx) is not int:
-                gs.logger.warning(f"Invalid dof_idx type: {type(dof_idx).__name__}")
-                return
-            if not isinstance(value, (int, float)) or isinstance(value, bool):
-                gs.logger.warning(f"Invalid value type: {type(value).__name__}")
-                return
-
+        if cmd.dof_idx is not None and cmd.value is not None:
             self._paused = True  # Auto-pause on manual DOF change
             is_multi_env = self.scene.n_envs > 1
             current = entity.get_qpos()
@@ -523,8 +498,8 @@ class GenesisWebServer:
                 # Extract env-0 from batched [n_envs, n_qs] result
                 current = current[0]
             new_qpos = current.tolist() if hasattr(current, "tolist") else list(current)
-            if 0 <= dof_idx < len(new_qpos):
-                new_qpos[dof_idx] = value
+            if 0 <= cmd.dof_idx < len(new_qpos):
+                new_qpos[cmd.dof_idx] = cmd.value
                 if is_multi_env:
                     entity.set_qpos(new_qpos, envs_idx=0)
                 else:
@@ -573,12 +548,10 @@ class GenesisWebServer:
         except Exception:
             gs.logger.debug("Failed to set contact visualization")
 
-    def _handle_vis_toggle(self, cmd):
+    def _handle_vis_toggle(self, cmd: VisToggleMsg):
         """Toggle visualization options via the rasterizer context."""
-        prop = cmd.get("property")
-        value = cmd.get("value")
-        if prop is None or value is None:
-            return
+        prop = cmd.property
+        value = cmd.value
 
         ctx = self.scene.visualizer._rasterizer._context
 
