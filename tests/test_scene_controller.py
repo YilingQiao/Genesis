@@ -168,3 +168,71 @@ def test_scene_controller_state_snapshots(show_viewer):
     assert "fov" in cam
     assert len(cam["pos"]) == 3
     assert len(cam["lookat"]) == 3
+
+
+# ---------------------------------------------------------------------------
+# Migration regression assertions (AC-4, AC-5, AC-6, AC-8)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.required
+def test_migration_server_no_direct_ctx_access():
+    """AC-4: server.py has no references to _rasterizer._context (except orthographic)."""
+    import inspect
+    from genesis.vis.web import server
+
+    source = inspect.getsource(server)
+    # Orthographic toggle is the only allowed direct rasterizer access
+    lines_with_ctx = [
+        line.strip()
+        for line in source.splitlines()
+        if "_rasterizer._context" in line and "orthographic" not in line.lower() and "toggle_orthographic" not in line
+    ]
+    assert len(lines_with_ctx) == 0, f"Direct _rasterizer._context access in server.py: {lines_with_ctx}"
+
+    # Dead methods should be gone
+    assert not hasattr(server.GenesisWebServer, "_get_ctx")
+    assert not hasattr(server.GenesisWebServer, "_toggle_wireframe")
+    assert not hasattr(server.GenesisWebServer, "_toggle_render_flag")
+    assert not hasattr(server.GenesisWebServer, "_update_visual_transforms")
+
+
+@pytest.mark.required
+def test_migration_scene_ops_no_rendering_functions():
+    """AC-8: scene_ops.py has no rendering functions, keeps build_entity_joint_data."""
+    from genesis.vis import scene_ops
+
+    # These should NOT be importable
+    assert not hasattr(scene_ops, "refresh_visual_transforms")
+    assert not hasattr(scene_ops, "switch_entity_vis_mode")
+    assert not hasattr(scene_ops, "set_entity_wireframe")
+    assert not hasattr(scene_ops, "set_entity_contact_viz")
+
+    # This should still be importable
+    assert hasattr(scene_ops, "build_entity_joint_data")
+    assert hasattr(scene_ops, "FREE_JOINT_POS_LIMIT")
+
+
+@pytest.mark.required
+def test_migration_viewer_no_shadow_normal_render_flags():
+    """AC-6: viewer _default_render_flags has no shadows, face_normals, vertex_normals."""
+    from genesis.ext.pyrender.viewer import Viewer
+
+    # Read the source to verify the keys are not in _default_render_flags
+    import inspect
+
+    source = inspect.getsource(Viewer)
+    # Find the _default_render_flags dict definition
+    in_dict = False
+    flag_lines = []
+    for line in source.splitlines():
+        if "_default_render_flags" in line and "{" in line:
+            in_dict = True
+        if in_dict:
+            flag_lines.append(line)
+            if "}" in line:
+                break
+    dict_text = "\n".join(flag_lines)
+    assert '"shadows"' not in dict_text, "shadows should not be in _default_render_flags"
+    assert '"face_normals"' not in dict_text, "face_normals should not be in _default_render_flags"
+    assert '"vertex_normals"' not in dict_text, "vertex_normals should not be in _default_render_flags"

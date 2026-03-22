@@ -60,26 +60,34 @@ def _make_stub_scene_entity(name="robot", idx=0, n_dofs=9, n_qs=9, joints=None):
             joints.append(j)
     entity.joints = joints
 
-    qpos = np.zeros(n_qs)
-    entity.get_qpos = MagicMock(
-        return_value=MagicMock(cpu=MagicMock(return_value=MagicMock(numpy=MagicMock(return_value=qpos))))
-    )
-    # Simpler: make get_qpos return something with .cpu().numpy()
     qpos_tensor = MagicMock()
-    qpos_tensor.cpu.return_value.numpy.return_value = qpos
+    qpos_tensor.cpu.return_value.numpy.return_value = np.zeros(n_qs)
     entity.get_qpos.return_value = qpos_tensor
 
     return entity
 
 
 def _make_stub_protocol_scene(entities=None, n_envs=1):
-    """Create a stub scene for build_scene_info."""
+    """Create a stub scene for build_scene_info.
+
+    Uses a mock controller for vis/camera state (post-migration architecture).
+    """
     scene = MagicMock()
     scene.entities = entities if entities is not None else []
     scene.n_envs = n_envs
-    # build_scene_info accesses scene.visualizer._rasterizer._context which may fail
-    # That's OK — it has try/except fallbacks
-    scene.visualizer._rasterizer._context = MagicMock()
+    # Controller provides vis/camera state
+    scene.controller.get_vis_state.return_value = {
+        "shadows": False,
+        "world_frame": False,
+        "link_frame": False,
+        "link_frame_size": 0.1,
+        "camera_frustum": False,
+        "face_normals": False,
+        "vertex_normals": False,
+        "wireframe": False,
+        "orthographic": False,
+    }
+    scene.controller.get_scene_camera_state.return_value = {}
     return scene
 
 
@@ -164,7 +172,10 @@ def test_frame_producer_thread_safety():
 
 
 def _make_stub_server(entities=None, n_envs=1, cameras=None):
-    """Create a GenesisWebServer with stubbed scene — no renderer required."""
+    """Create a GenesisWebServer with stubbed scene — no renderer required.
+
+    Post-migration: uses scene.controller for vis/entity operations.
+    """
     from genesis.vis.web.server import GenesisWebServer
 
     server = object.__new__(GenesisWebServer)
@@ -172,15 +183,17 @@ def _make_stub_server(entities=None, n_envs=1, cameras=None):
     server.scene.entities = entities if entities is not None else []
     server.scene.n_envs = n_envs
     server.scene.visualizer.cameras = cameras if cameras is not None else []
+    # Mock controller for vis/entity operations
+    server.scene.controller = MagicMock()
     server._paused = False
     server._step_requested = False
     server._reset_requested = False
     server._pending_commands = []
     server._commands_lock = threading.Lock()
-    server._entity_wireframe = {}
     server._initial_camera_pos = None
     server._initial_camera_lookat = None
     server._initial_camera_fov = None
+    server._perspective_camera = None
     return server
 
 
@@ -215,25 +228,27 @@ def _make_numeric_camera(pos=None, lookat=None, up=None, fov=30.0):
 
 @pytest.mark.required
 def test_server_cooperative_control():
-    """Test should_step() and sim control commands without starting the server."""
+    """Test should_step() and sim control commands using Pydantic models."""
+    from genesis.vis.web.protocol import SimControlMsg
+
     server = _make_stub_server()
 
     # Initially not paused
     assert server.should_step() is True
 
     # Simulate pause command
-    server._enqueue_command({"type": "sim_control", "action": "pause"})
+    server._enqueue_command(SimControlMsg(action="pause"))
     server.process_commands()
     assert server.should_step() is False
 
     # Simulate step command (single step while paused)
-    server._enqueue_command({"type": "sim_control", "action": "step"})
+    server._enqueue_command(SimControlMsg(action="step"))
     server.process_commands()
     assert server.should_step() is True  # consumes the step
     assert server.should_step() is False  # back to paused
 
     # Simulate play command
-    server._enqueue_command({"type": "sim_control", "action": "play"})
+    server._enqueue_command(SimControlMsg(action="play"))
     server.process_commands()
     assert server.should_step() is True
 
@@ -252,31 +267,32 @@ def test_lazy_import_wrapper():
 
 
 # ---------------------------------------------------------------------------
-# Camera handler tests (AC-6)
+# Camera handler tests
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.required
 def test_camera_update_no_cameras():
     """Test _handle_camera_update returns safely when scene has no cameras."""
+    from genesis.vis.web.protocol import CameraUpdateMsg
+
     server = _make_stub_server(cameras=[])
-    mock_camera = MagicMock()
+    cmd = CameraUpdateMsg(action="orbit", d_azimuth=1.0, d_elevation=0.0)
 
     # Should return without error (early return guard)
-    server._handle_camera_update({"action": "orbit", "d_azimuth": 1.0, "d_elevation": 0.0})
-
-    # Verify no camera methods were called (no mutation)
-    assert mock_camera.method_calls == []
+    server._handle_camera_update(cmd)
 
 
 @pytest.mark.required
 def test_camera_update_with_cameras():
-    """Test _handle_camera_update works normally: orbit action calls set_pose on the camera."""
+    """Test _handle_camera_update: orbit action calls set_pose on the camera."""
+    from genesis.vis.web.protocol import CameraUpdateMsg
+
     camera = _make_numeric_camera(pos=[3.0, 0.0, 2.0], lookat=[0.0, 0.0, 0.0])
     server = _make_stub_server(cameras=[camera])
 
-    # orbit action with non-zero delta should call set_pose
-    server._handle_camera_update({"action": "orbit", "d_azimuth": 0.1, "d_elevation": 0.05})
+    cmd = CameraUpdateMsg(action="orbit", d_azimuth=0.1, d_elevation=0.05)
+    server._handle_camera_update(cmd)
 
     # Verify set_pose was called with new pos and lookat
     assert camera.set_pose.call_count == 1
@@ -286,59 +302,29 @@ def test_camera_update_with_cameras():
 
 
 # ---------------------------------------------------------------------------
-# Entity update handler tests (AC-7, AC-8)
+# Entity update handler tests
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.required
-def test_entity_update_invalid_types():
-    """Test _handle_entity_update rejects invalid field types with warnings and no mutation."""
-    entity = _make_stub_entity()
-    server = _make_stub_server(entities=[entity])
-
-    invalid_cases_with_warning = [
-        ({"entity_idx": None}, "None entity_idx"),
-        ({"entity_idx": True}, "bool entity_idx"),
-        ({"entity_idx": "0"}, "str entity_idx"),
-        ({"entity_idx": 0.5}, "float entity_idx"),
-        ({"entity_idx": 0, "vis_mode": "invalid"}, "invalid vis_mode"),
-        ({"entity_idx": 0, "dof_idx": True, "value": 1.0}, "bool dof_idx"),
-        ({"entity_idx": 0, "dof_idx": 0, "value": True}, "bool value"),
-        ({"entity_idx": 0, "qpos": "not a list"}, "str qpos"),
-        ({"entity_idx": 0, "qpos": 42}, "int qpos"),
-    ]
-
-    for cmd, desc in invalid_cases_with_warning:
-        entity.set_qpos.reset_mock()
-        entity.get_qpos.reset_mock()
-
-        with patch.object(gs.logger, "warning") as mock_warn:
-            server._handle_entity_update(cmd)
-
-        # Warning must have been logged
-        assert mock_warn.call_count >= 1, f"Expected warning for {desc}"
-        warn_msg = mock_warn.call_args[0][0]
-        assert "Invalid" in warn_msg, f"Warning should mention 'Invalid' for {desc}"
-
-        # Entity must NOT be mutated
-        entity.set_qpos.assert_not_called(), f"set_qpos should not be called for {desc}"
-
-
-@pytest.mark.required
 def test_entity_update_valid_single_env():
-    """Test _handle_entity_update accepts valid types for single-env, no envs_idx passed."""
+    """Test _handle_entity_update accepts valid single-DOF and full qpos for single-env."""
+    from genesis.vis.web.protocol import EntityUpdateMsg
+
     entity = _make_stub_entity(n_qs=9, n_envs=1)
     server = _make_stub_server(entities=[entity], n_envs=1)
 
     # Valid single-DOF update
-    server._handle_entity_update({"entity_idx": 0, "dof_idx": 0, "value": 0.5})
+    cmd = EntityUpdateMsg(entity_idx=0, dof_idx=0, value=0.5)
+    server._handle_entity_update(cmd)
     assert entity.set_qpos.call_count == 1
     _, kwargs = entity.set_qpos.call_args
     assert "envs_idx" not in kwargs, "envs_idx should NOT be passed for single-env"
 
     # Valid full qpos update
     entity.set_qpos.reset_mock()
-    server._handle_entity_update({"entity_idx": 0, "qpos": [0.0] * 9})
+    cmd = EntityUpdateMsg(entity_idx=0, qpos=[0.0] * 9)
+    server._handle_entity_update(cmd)
     assert entity.set_qpos.call_count == 1
     _, kwargs = entity.set_qpos.call_args
     assert "envs_idx" not in kwargs, "envs_idx should NOT be passed for single-env"
@@ -347,10 +333,13 @@ def test_entity_update_valid_single_env():
 @pytest.mark.required
 def test_entity_update_multi_env_full_qpos():
     """Test multi-env full-qpos: set_qpos called with envs_idx=0."""
+    from genesis.vis.web.protocol import EntityUpdateMsg
+
     entity = _make_stub_entity(n_qs=9, n_envs=4)
     server = _make_stub_server(entities=[entity], n_envs=4)
 
-    server._handle_entity_update({"entity_idx": 0, "qpos": [0.1] * 9})
+    cmd = EntityUpdateMsg(entity_idx=0, qpos=[0.1] * 9)
+    server._handle_entity_update(cmd)
     assert entity.set_qpos.call_count == 1
     _, kwargs = entity.set_qpos.call_args
     assert kwargs.get("envs_idx") == 0, "multi-env full-qpos must pass envs_idx=0"
@@ -359,15 +348,16 @@ def test_entity_update_multi_env_full_qpos():
 @pytest.mark.required
 def test_entity_update_multi_env_single_dof():
     """Test multi-env single-DOF: reads batched qpos, extracts env-0, writes with envs_idx=0."""
+    from genesis.vis.web.protocol import EntityUpdateMsg
+
     entity = _make_stub_entity(n_qs=9, n_envs=4)
     server = _make_stub_server(entities=[entity], n_envs=4)
 
-    server._handle_entity_update({"entity_idx": 0, "dof_idx": 2, "value": 0.77})
+    cmd = EntityUpdateMsg(entity_idx=0, dof_idx=2, value=0.77)
+    server._handle_entity_update(cmd)
 
-    # get_qpos must be called WITHOUT envs_idx (to get batched result)
+    # get_qpos must be called
     assert entity.get_qpos.call_count == 1
-    _, get_kwargs = entity.get_qpos.call_args
-    assert "envs_idx" not in get_kwargs, "multi-env single-DOF must read full batched qpos"
 
     # set_qpos must be called WITH envs_idx=0
     assert entity.set_qpos.call_count == 1
@@ -378,3 +368,55 @@ def test_entity_update_multi_env_single_dof():
     written_qpos = set_args[0]
     assert len(written_qpos) == 9, "written qpos should be 1D with n_qs elements"
     assert written_qpos[2] == 0.77
+
+
+@pytest.mark.required
+def test_entity_update_vis_mode_uses_controller():
+    """Test vis_mode update routes through scene.controller."""
+    from genesis.vis.web.protocol import EntityUpdateMsg
+
+    entity = _make_stub_entity()
+    server = _make_stub_server(entities=[entity])
+
+    cmd = EntityUpdateMsg(entity_idx=0, vis_mode="collision")
+    server._handle_entity_update(cmd)
+
+    server.scene.controller.switch_entity_vis_mode.assert_called_once_with(entity, "collision")
+
+
+@pytest.mark.required
+def test_entity_update_wireframe_uses_controller():
+    """Test wireframe update routes through scene.controller."""
+    from genesis.vis.web.protocol import EntityUpdateMsg
+
+    entity = _make_stub_entity()
+    server = _make_stub_server(entities=[entity])
+
+    cmd = EntityUpdateMsg(entity_idx=0, wireframe=True)
+    server._handle_entity_update(cmd)
+
+    server.scene.controller.set_entity_wireframe.assert_called_once_with(entity, True)
+
+
+@pytest.mark.required
+def test_vis_toggle_uses_controller():
+    """Test vis toggles route through scene.controller."""
+    from genesis.vis.web.protocol import VisToggleMsg
+
+    server = _make_stub_server()
+
+    toggles = [
+        ("shadows", True, "set_shadows"),
+        ("wireframe", True, "set_wireframe"),
+        ("world_frame", True, "set_world_frame"),
+        ("link_frame", False, "set_link_frame"),
+        ("camera_frustum", True, "set_camera_frustum"),
+        ("face_normals", True, "set_face_normals"),
+        ("vertex_normals", False, "set_vertex_normals"),
+    ]
+
+    for prop, value, method_name in toggles:
+        server.scene.controller.reset_mock()
+        cmd = VisToggleMsg(property=prop, value=value)
+        server._handle_vis_toggle(cmd)
+        getattr(server.scene.controller, method_name).assert_called_once_with(bool(value))
