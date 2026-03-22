@@ -16,13 +16,6 @@ import numpy as np
 
 import genesis as gs
 
-from genesis.vis.scene_ops import (
-    refresh_visual_transforms,
-    set_entity_contact_viz,
-    set_entity_wireframe,
-    switch_entity_vis_mode,
-)
-
 from .frame_producer import FrameProducer
 from .protocol import (
     build_scene_info,
@@ -96,8 +89,8 @@ class GenesisWebServer:
         self._initial_camera_lookat = None
         self._initial_camera_fov = None
 
-        # Per-entity wireframe tracking
-        self._entity_wireframe = {}  # entity_idx -> bool
+        # Orthographic toggle state (frontend-specific, not on controller)
+        self._perspective_camera = None
 
     def _build_app(self):
         """Create the FastAPI application. Called lazily to defer import."""
@@ -221,33 +214,8 @@ class GenesisWebServer:
         sim_time = float(self.scene.cur_t) if self.scene.is_built else 0.0
         step = int(self.scene.t) if self.scene.is_built else 0
 
-        camera_state = None
-        try:
-            camera = self.scene.visualizer.cameras[0]
-            pos = camera.pos
-            lookat = camera.lookat
-            camera_state = {
-                "pos": [float(pos[0]), float(pos[1]), float(pos[2])],
-                "lookat": [float(lookat[0]), float(lookat[1]), float(lookat[2])],
-                "fov": float(getattr(camera, "fov", 30.0)),
-            }
-            # Send actual view/projection matrices for accurate gizmo rendering.
-            # This avoids reconstruction errors from pos/lookat/up ambiguity.
-            try:
-                view_mat = np.linalg.inv(camera.transform)
-                # Transpose to column-major for JavaScript (OpenGL convention)
-                camera_state["view_matrix"] = view_mat.T.flatten().tolist()
-            except Exception:
-                gs.logger.debug("Failed to compute view matrix")
-            try:
-                rasterizer = self.scene.visualizer._rasterizer
-                cam_node = rasterizer._camera_nodes[camera.uid]
-                proj = cam_node.camera.get_projection_matrix(width=camera.res[0], height=camera.res[1])
-                camera_state["proj_matrix"] = proj.T.flatten().tolist()
-            except Exception:
-                gs.logger.debug("Failed to compute projection matrix")
-        except Exception:
-            gs.logger.debug("Failed to build camera state")
+        # Use controller for camera state
+        camera_state = self.scene.controller.get_scene_camera_state() or None
 
         # Gather current entity qpos for gizmo tracking
         entity_positions = None
@@ -340,7 +308,7 @@ class GenesisWebServer:
         self._target_fps = max(0, min(240, cmd.fps))
 
     def _handle_camera_update(self, cmd: CameraUpdateMsg):
-        """Apply camera manipulation commands."""
+        """Apply camera manipulation commands (frontend-specific camera math)."""
         if not self.scene.visualizer.cameras:
             return
         camera = self.scene.visualizer.cameras[0]
@@ -356,10 +324,7 @@ class GenesisWebServer:
                 camera.set_pose(pos=cmd.pos, lookat=cmd.lookat)
         elif cmd.action == "set_fov":
             if cmd.fov is not None:
-                try:
-                    camera._fov = float(cmd.fov)
-                except Exception:
-                    gs.logger.debug("Failed to set camera FOV")
+                self.scene.controller.set_scene_camera_fov(cmd.fov)
         elif cmd.action == "reset":
             try:
                 if self._initial_camera_pos is not None:
@@ -368,7 +333,7 @@ class GenesisWebServer:
                         lookat=self._initial_camera_lookat.copy(),
                     )
                 if self._initial_camera_fov is not None:
-                    camera._fov = float(self._initial_camera_fov)
+                    self.scene.controller.set_scene_camera_fov(self._initial_camera_fov)
             except Exception:
                 gs.logger.debug("Failed to reset camera")
 
@@ -448,20 +413,21 @@ class GenesisWebServer:
             return
 
         entity = entities[entity_idx]
+        ctrl = self.scene.controller
 
         # Per-entity vis mode switch
         if cmd.vis_mode is not None:
-            self._switch_entity_vis_mode(entity, cmd.vis_mode)
+            ctrl.switch_entity_vis_mode(entity, cmd.vis_mode)
             return
 
         # Per-entity wireframe toggle
         if cmd.wireframe is not None:
-            self._set_entity_wireframe(entity, entity_idx, cmd.wireframe)
+            ctrl.set_entity_wireframe(entity, cmd.wireframe)
             return
 
         # Contact visualization toggle
         if cmd.contact_viz is not None:
-            self._set_entity_contact_viz(entity, cmd.contact_viz)
+            ctrl.set_entity_contact_viz(entity, cmd.contact_viz)
             return
 
         # DOF/qpos updates require set_qpos
@@ -486,7 +452,7 @@ class GenesisWebServer:
                 entity.set_qpos(qpos, envs_idx=0)
             else:
                 entity.set_qpos(qpos)
-            self._update_visual_transforms()
+            ctrl.refresh_visual_transforms()
             return
 
         # Single DOF slider update
@@ -504,146 +470,50 @@ class GenesisWebServer:
                     entity.set_qpos(new_qpos, envs_idx=0)
                 else:
                     entity.set_qpos(new_qpos)
-                self._update_visual_transforms()
-
-    def _get_ctx(self):
-        """Get the RasterizerContext, or None if unavailable."""
-        try:
-            return self.scene.visualizer._rasterizer._context
-        except Exception:
-            return None
-
-    def _update_visual_transforms(self):
-        """Update render transforms so visuals reflect the latest qpos immediately."""
-        try:
-            ctx = self._get_ctx()
-            if ctx is not None:
-                refresh_visual_transforms(self.scene, ctx)
-        except Exception:
-            gs.logger.debug("Failed to update visual transforms")
-
-    def _switch_entity_vis_mode(self, entity, new_mode):
-        """Switch entity between 'visual' and 'collision' rendering."""
-        try:
-            ctx = self._get_ctx()
-            if ctx is not None:
-                switch_entity_vis_mode(self.scene, ctx, entity, new_mode)
-        except Exception:
-            gs.logger.debug("Failed to switch entity vis mode")
-
-    def _set_entity_wireframe(self, entity, entity_idx, enable):
-        """Toggle wireframe rendering for all geom nodes of an entity."""
-        try:
-            ctx = self._get_ctx()
-            if ctx is not None:
-                self._entity_wireframe[entity_idx] = enable
-                set_entity_wireframe(ctx, entity, enable)
-        except Exception:
-            gs.logger.debug("Failed to set entity wireframe")
-
-    def _set_entity_contact_viz(self, entity, enable):
-        """Toggle contact visualization for an entity and its links."""
-        try:
-            set_entity_contact_viz(entity, enable)
-        except Exception:
-            gs.logger.debug("Failed to set contact visualization")
+                ctrl.refresh_visual_transforms()
 
     def _handle_vis_toggle(self, cmd: VisToggleMsg):
-        """Toggle visualization options via the rasterizer context."""
+        """Toggle visualization options via scene.controller."""
         prop = cmd.property
         value = cmd.value
-
-        ctx = self.scene.visualizer._rasterizer._context
+        ctrl = self.scene.controller
 
         if prop == "shadows":
-            ctx.shadow = bool(value)
+            ctrl.set_shadows(bool(value))
         elif prop == "wireframe":
-            self._toggle_wireframe(bool(value))
+            ctrl.set_wireframe(bool(value))
         elif prop == "world_frame":
-            if value:
-                ctx.on_world_frame()
-            else:
-                ctx.off_world_frame()
+            ctrl.set_world_frame(bool(value))
         elif prop == "link_frame":
-            if value:
-                ctx.on_link_frame()
-                # Also update positions to current state
-                ctx.update_link_frame(ctx.buffer)
-            else:
-                ctx.off_link_frame()
+            ctrl.set_link_frame(bool(value))
         elif prop == "camera_frustum":
-            if value:
-                ctx.on_camera_frustum()
-            else:
-                ctx.off_camera_frustum()
+            ctrl.set_camera_frustum(bool(value))
         elif prop == "face_normals":
-            self._toggle_render_flag("face_normals", bool(value))
+            ctrl.set_face_normals(bool(value))
         elif prop == "vertex_normals":
-            self._toggle_render_flag("vertex_normals", bool(value))
+            ctrl.set_vertex_normals(bool(value))
         elif prop == "orthographic":
             self._toggle_orthographic(bool(value))
         elif prop == "link_frame_size":
             try:
-                new_size = float(value)
-                if ctx.link_frame_size > 0:
-                    scale = new_size / ctx.link_frame_size
-                    ctx.link_frame_mesh.vertices *= scale
-                    ctx.link_frame_size = new_size
-                    if ctx.link_frame_shown:
-                        ctx.off_link_frame()
-                        ctx.on_link_frame()
+                ctrl.set_link_frame_size(float(value))
             except Exception:
                 gs.logger.debug("Failed to resize link frame")
 
-    def _toggle_wireframe(self, enable):
-        """Toggle wireframe rendering for all mesh primitives."""
-        ctx = self.scene.visualizer._rasterizer._context
-        for node in ctx._scene.mesh_nodes:
-            for primitive in node.mesh.primitives:
-                if primitive.material is not None:
-                    primitive.material.wireframe = enable
-        # Signal JIT renderer to rebuild cached render_flags
-        ctx._scene._meshes_updated = True
-        # Global toggle overrides per-entity state
-        self._entity_wireframe.clear()
-
-    def _toggle_render_flag(self, flag_name, enable):
-        """Toggle face_normals or vertex_normals render flags on the rasterizer context."""
-        from genesis.ext.pyrender.constants import RenderFlags
-
-        flag_map = {
-            "face_normals": RenderFlags.FACE_NORMALS,
-            "vertex_normals": RenderFlags.VERTEX_NORMALS,
-        }
-        flag = flag_map.get(flag_name)
-        if flag is None:
-            return
-        try:
-            ctx = self.scene.visualizer._rasterizer._context
-            current = getattr(ctx, "_extra_render_flags", RenderFlags.NONE)
-            if enable:
-                ctx._extra_render_flags = current | flag
-            else:
-                ctx._extra_render_flags = current & ~flag
-        except Exception:
-            gs.logger.debug("Failed to toggle render flag")
-
     def _toggle_orthographic(self, enable):
-        """Switch between perspective and orthographic projection."""
+        """Switch between perspective and orthographic projection (frontend-specific)."""
         try:
             camera = self.scene.visualizer.cameras[0]
             rasterizer = self.scene.visualizer._rasterizer
             camera_node = rasterizer._camera_nodes[camera.uid]
 
             if enable:
-                # Compute orthographic magnification from current perspective view
                 pos = camera.pos
                 lookat = camera.lookat
                 distance = float(np.linalg.norm(pos - lookat))
                 half_height = distance * np.tan(np.deg2rad(camera.fov / 2.0))
                 half_width = half_height * camera.aspect_ratio
 
-                # Store the original perspective camera for later restoration
                 self._perspective_camera = camera_node.camera
 
                 from genesis.ext.pyrender import OrthographicCamera
@@ -655,8 +525,7 @@ class GenesisWebServer:
                     zfar=camera.far,
                 )
             else:
-                # Restore perspective camera
-                if hasattr(self, "_perspective_camera") and self._perspective_camera is not None:
+                if self._perspective_camera is not None:
                     camera_node.camera = self._perspective_camera
                     self._perspective_camera = None
         except Exception:

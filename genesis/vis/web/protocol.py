@@ -285,28 +285,21 @@ def build_scene_info(scene) -> dict:
 
     vis_state = VisState()
     try:
-        ctx = scene.visualizer._rasterizer._context
-        vis_state = VisState(
-            shadows=bool(ctx.shadow),
-            world_frame=bool(ctx.world_frame_shown),
-            link_frame=bool(ctx.link_frame_shown),
-            link_frame_size=float(getattr(ctx, "link_frame_size", 0.1)),
-            camera_frustum=bool(ctx.camera_frustum_shown),
-        )
+        ctrl = scene.controller
+        if ctrl is not None:
+            vis_dict = ctrl.get_vis_state()
+            if vis_dict:
+                vis_state = VisState(**vis_dict)
     except Exception:
         pass
 
     camera_state = CameraState()
     try:
-        camera = scene.visualizer.cameras[0]
-        pos = camera.pos
-        lookat = camera.lookat
-        fov = camera.fov if hasattr(camera, "fov") else 30.0
-        camera_state = CameraState(
-            pos=pos.tolist(),
-            lookat=lookat.tolist(),
-            fov=float(fov),
-        )
+        ctrl = scene.controller
+        if ctrl is not None:
+            cam_dict = ctrl.get_scene_camera_state()
+            if cam_dict:
+                camera_state = CameraState(**cam_dict)
     except Exception:
         pass
 

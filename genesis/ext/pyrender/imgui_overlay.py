@@ -15,9 +15,6 @@ from genesis.vis.scene_ops import (
     FREE_JOINT_POS_LIMIT,
     QUATERNION_COMPONENT_LIMIT,
     build_entity_joint_data,
-    refresh_visual_transforms,
-    set_entity_wireframe as _shared_set_entity_wireframe,
-    switch_entity_vis_mode as _shared_switch_entity_vis_mode,
 )
 from genesis.vis.viewer_plugins import ViewerPlugin, EVENT_HANDLED, EVENT_HANDLE_STATE
 
@@ -376,15 +373,15 @@ class ImGuiOverlayPlugin(ViewerPlugin):
         else:
             entity.set_qpos(qpos_array)
 
-        refresh_visual_transforms(self.scene, self.viewer.gs_context)
+        self.scene.controller.refresh_visual_transforms()
 
     def _switch_entity_vis_mode(self, entity, new_mode):
         """Switch entity visualization between 'visual' and 'collision' at runtime."""
-        _shared_switch_entity_vis_mode(self.scene, self.viewer.gs_context, entity, new_mode)
+        self.scene.controller.switch_entity_vis_mode(entity, new_mode)
 
     def _set_entity_wireframe(self, entity, wireframe):
         """Toggle wireframe rendering for all geom nodes of an entity."""
-        _shared_set_entity_wireframe(self.viewer.gs_context, entity, wireframe)
+        self.scene.controller.set_entity_wireframe(entity, wireframe)
 
     def _is_capturing(self) -> bool:
         """Check if ImGui or gizmo wants mouse/keyboard input."""
@@ -568,58 +565,43 @@ class ImGuiOverlayPlugin(ViewerPlugin):
     def _render_visualization(self):
         """Render visualization toggle controls."""
         imgui = self._imgui
-        render_flags = self.viewer.render_flags
-        gs_context = self.viewer.gs_context
+        ctrl = self.scene.controller
 
         # Shadows
-        changed, new_val = imgui.checkbox("Shadows", render_flags["shadows"])
+        changed, new_val = imgui.checkbox("Shadows", ctrl.get_shadows())
         if changed:
-            render_flags["shadows"] = new_val
+            ctrl.set_shadows(new_val)
 
         # World Frame
-        changed, new_val = imgui.checkbox("World Frame", gs_context.world_frame_shown)
+        changed, new_val = imgui.checkbox("World Frame", ctrl.get_world_frame())
         if changed:
-            if new_val:
-                gs_context.on_world_frame()
-            else:
-                gs_context.off_world_frame()
+            ctrl.set_world_frame(new_val)
 
         # Link Frame
-        changed, new_val = imgui.checkbox("Link Frame", gs_context.link_frame_shown)
+        changed, new_val = imgui.checkbox("Link Frame", ctrl.get_link_frame())
         if changed:
-            if new_val:
-                gs_context.on_link_frame()
-            else:
-                gs_context.off_link_frame()
+            ctrl.set_link_frame(new_val)
 
         # Link Frame Size slider
-        link_size = gs_context.link_frame_size
+        link_size = ctrl.get_link_frame_size()
         changed_size, new_size = imgui.slider_float("Frame Size##link_frame_size", link_size, 0.02, 0.5, "%.2f")
-        if changed_size and gs_context.link_frame_size > 0:
-            scale = new_size / gs_context.link_frame_size
-            gs_context.link_frame_mesh.vertices *= scale
-            gs_context.link_frame_size = new_size
-            if gs_context.link_frame_shown:
-                gs_context.off_link_frame()
-                gs_context.on_link_frame()
+        if changed_size:
+            ctrl.set_link_frame_size(new_size)
 
         # Camera Frustum
-        changed, new_val = imgui.checkbox("Camera Frustum", gs_context.camera_frustum_shown)
+        changed, new_val = imgui.checkbox("Camera Frustum", ctrl.get_camera_frustum())
         if changed:
-            if new_val:
-                gs_context.on_camera_frustum()
-            else:
-                gs_context.off_camera_frustum()
+            ctrl.set_camera_frustum(new_val)
 
         # Face Normals
-        changed, new_val = imgui.checkbox("Face Normals", render_flags["face_normals"])
+        changed, new_val = imgui.checkbox("Face Normals", ctrl.get_face_normals())
         if changed:
-            render_flags["face_normals"] = new_val
+            ctrl.set_face_normals(new_val)
 
         # Vertex Normals
-        changed, new_val = imgui.checkbox("Vertex Normals", render_flags["vertex_normals"])
+        changed, new_val = imgui.checkbox("Vertex Normals", ctrl.get_vertex_normals())
         if changed:
-            render_flags["vertex_normals"] = new_val
+            ctrl.set_vertex_normals(new_val)
 
         imgui.separator()
 
@@ -1020,9 +1002,7 @@ class ImGuiOverlayPlugin(ViewerPlugin):
             show_contact = entity.visualize_contact
             changed_contact, new_contact = imgui.checkbox(f"Show Contacts##contact_{entity_idx}", show_contact)
             if changed_contact:
-                entity._visualize_contact = new_contact
-                for link in entity.links:
-                    link._visualize_contact = new_contact
+                self.scene.controller.set_entity_contact_viz(entity, new_contact)
 
             # Gizmo toggle for free-joint entities
             if data.get("has_free_joint") and self._gizmo is not None:
@@ -1160,7 +1140,7 @@ class ImGuiOverlayPlugin(ViewerPlugin):
                     entity.set_dofs_position(dofs_array, envs_idx=0)
                 else:
                     entity.set_dofs_position(dofs_array)
-                refresh_visual_transforms(self.scene, self.viewer.gs_context)
+                self.scene.controller.refresh_visual_transforms()
 
             # Refresh new_qpos with updated free joint qpos (euler->quat conversion happened)
             fresh_raw = entity.get_qpos()
