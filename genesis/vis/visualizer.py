@@ -189,6 +189,11 @@ class Visualizer(RBC):
         if self._batch_renderer is not None:
             self._batch_renderer.build()
 
+        # Create the scene-level controller
+        from genesis.vis.controller import SceneController
+
+        self._controller = SceneController(self._scene, ctx=self._context)
+
         # Fully initialized at this point
         self._is_built = True
 
@@ -255,6 +260,10 @@ class Visualizer(RBC):
     @property
     def is_built(self) -> bool:
         return self._is_built
+
+    @property
+    def controller(self):
+        return getattr(self, "_controller", None)
 
     @property
     def viewer(self):
