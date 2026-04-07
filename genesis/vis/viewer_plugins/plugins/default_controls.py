@@ -57,49 +57,34 @@ class DefaultControlsPlugin(ViewerPlugin):
             self.viewer.set_message_text("Fullscreen Off")
 
     def _toggle_shadow(self):
-        self.viewer.render_flags["shadows"] = not self.viewer.render_flags["shadows"]
-        if self.viewer.render_flags["shadows"]:
-            self.viewer.set_message_text("Shadows On")
-        else:
-            self.viewer.set_message_text("Shadows Off")
+        ctrl = self.scene.controller
+        ctrl.set_shadows(not ctrl.get_shadows())
+        self.viewer.set_message_text("Shadows On" if ctrl.get_shadows() else "Shadows Off")
 
     def _toggle_world_frame(self):
-        if not self.viewer.gs_context.world_frame_shown:
-            self.viewer.gs_context.on_world_frame()
-            self.viewer.set_message_text("World Frame On")
-        else:
-            self.viewer.gs_context.off_world_frame()
-            self.viewer.set_message_text("World Frame Off")
+        ctrl = self.scene.controller
+        ctrl.set_world_frame(not ctrl.get_world_frame())
+        self.viewer.set_message_text("World Frame On" if ctrl.get_world_frame() else "World Frame Off")
 
     def _toggle_link_frame(self):
-        if not self.viewer.gs_context.link_frame_shown:
-            self.viewer.gs_context.on_link_frame()
-            self.viewer.set_message_text("Link Frame On")
-        else:
-            self.viewer.gs_context.off_link_frame()
-            self.viewer.set_message_text("Link Frame Off")
+        ctrl = self.scene.controller
+        ctrl.set_link_frame(not ctrl.get_link_frame())
+        self.viewer.set_message_text("Link Frame On" if ctrl.get_link_frame() else "Link Frame Off")
 
     def _toggle_camera_frustum(self):
-        if not self.viewer.gs_context.camera_frustum_shown:
-            self.viewer.gs_context.on_camera_frustum()
-            self.viewer.set_message_text("Camera Frustum On")
-        else:
-            self.viewer.gs_context.off_camera_frustum()
-            self.viewer.set_message_text("Camera Frustum Off")
+        ctrl = self.scene.controller
+        ctrl.set_camera_frustum(not ctrl.get_camera_frustum())
+        self.viewer.set_message_text("Camera Frustum On" if ctrl.get_camera_frustum() else "Camera Frustum Off")
 
     def _toggle_face_normals(self):
-        self.viewer.render_flags["face_normals"] = not self.viewer.render_flags["face_normals"]
-        if self.viewer.render_flags["face_normals"]:
-            self.viewer.set_message_text("Face Normals On")
-        else:
-            self.viewer.set_message_text("Face Normals Off")
+        ctrl = self.scene.controller
+        ctrl.set_face_normals(not ctrl.get_face_normals())
+        self.viewer.set_message_text("Face Normals On" if ctrl.get_face_normals() else "Face Normals Off")
 
     def _toggle_vertex_normals(self):
-        self.viewer.render_flags["vertex_normals"] = not self.viewer.render_flags["vertex_normals"]
-        if self.viewer.render_flags["vertex_normals"]:
-            self.viewer.set_message_text("Vert Normals On")
-        else:
-            self.viewer.set_message_text("Vert Normals Off")
+        ctrl = self.scene.controller
+        ctrl.set_vertex_normals(not ctrl.get_vertex_normals())
+        self.viewer.set_message_text("Vert Normals On" if ctrl.get_vertex_normals() else "Vert Normals Off")
 
     def _toggle_record_video(self):
         if self.viewer.viewer_flags["record"]:

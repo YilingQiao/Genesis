@@ -1533,6 +1533,11 @@ class Scene(RBC):
         return self._visualizer.viewer
 
     @property
+    def controller(self):
+        """The scene-level controller for visualization toggles and entity rendering."""
+        return self._visualizer.controller if self._visualizer is not None else None
+
+    @property
     def visualizer(self):
         """The visualizer object for the scene."""
         return self._visualizer

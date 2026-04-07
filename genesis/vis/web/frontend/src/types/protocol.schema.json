@@ -1,0 +1,853 @@
+{
+  "$defs": {
+    "JointInfo": {
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "type": {
+          "title": "Type",
+          "type": "string"
+        },
+        "n_dofs": {
+          "title": "N Dofs",
+          "type": "integer"
+        },
+        "n_qs": {
+          "title": "N Qs",
+          "type": "integer"
+        },
+        "dofs_limit": {
+          "items": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array"
+          },
+          "title": "Dofs Limit",
+          "type": "array"
+        }
+      },
+      "required": [
+        "name",
+        "type",
+        "n_dofs",
+        "n_qs",
+        "dofs_limit"
+      ],
+      "title": "JointInfo",
+      "type": "object"
+    },
+    "EntityInfo": {
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "idx": {
+          "title": "Idx",
+          "type": "integer"
+        },
+        "vis_mode": {
+          "default": "visual",
+          "title": "Vis Mode",
+          "type": "string"
+        },
+        "visualize_contact": {
+          "default": false,
+          "title": "Visualize Contact",
+          "type": "boolean"
+        },
+        "n_dofs": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "N Dofs"
+        },
+        "n_qs": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "N Qs"
+        },
+        "joints": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/JointInfo"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Joints"
+        },
+        "q_names": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Q Names"
+        },
+        "q_limits_lower": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "number"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Q Limits Lower"
+        },
+        "q_limits_upper": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "number"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Q Limits Upper"
+        },
+        "q_is_quaternion": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "boolean"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Q Is Quaternion"
+        },
+        "quat_groups": {
+          "anyOf": [
+            {
+              "items": {
+                "items": {
+                  "type": "integer"
+                },
+                "type": "array"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Quat Groups"
+        },
+        "has_free_joint": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Has Free Joint"
+        },
+        "free_joint_q_start": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Free Joint Q Start"
+        },
+        "qpos": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "number"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Qpos"
+        }
+      },
+      "required": [
+        "name",
+        "idx"
+      ],
+      "title": "EntityInfo",
+      "type": "object"
+    },
+    "VisState": {
+      "properties": {
+        "shadows": {
+          "default": false,
+          "title": "Shadows",
+          "type": "boolean"
+        },
+        "world_frame": {
+          "default": false,
+          "title": "World Frame",
+          "type": "boolean"
+        },
+        "link_frame": {
+          "default": false,
+          "title": "Link Frame",
+          "type": "boolean"
+        },
+        "link_frame_size": {
+          "default": 0.1,
+          "title": "Link Frame Size",
+          "type": "number"
+        },
+        "camera_frustum": {
+          "default": false,
+          "title": "Camera Frustum",
+          "type": "boolean"
+        },
+        "face_normals": {
+          "default": false,
+          "title": "Face Normals",
+          "type": "boolean"
+        },
+        "vertex_normals": {
+          "default": false,
+          "title": "Vertex Normals",
+          "type": "boolean"
+        },
+        "wireframe": {
+          "default": false,
+          "title": "Wireframe",
+          "type": "boolean"
+        },
+        "orthographic": {
+          "default": false,
+          "title": "Orthographic",
+          "type": "boolean"
+        }
+      },
+      "title": "VisState",
+      "type": "object"
+    },
+    "CameraState": {
+      "properties": {
+        "pos": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "number"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pos"
+        },
+        "lookat": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "number"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Lookat"
+        },
+        "fov": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Fov"
+        },
+        "view_matrix": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "number"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "View Matrix"
+        },
+        "proj_matrix": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "number"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Proj Matrix"
+        }
+      },
+      "title": "CameraState",
+      "type": "object"
+    },
+    "EntityPosition": {
+      "properties": {
+        "idx": {
+          "title": "Idx",
+          "type": "integer"
+        },
+        "qpos": {
+          "items": {
+            "type": "number"
+          },
+          "title": "Qpos",
+          "type": "array"
+        }
+      },
+      "required": [
+        "idx",
+        "qpos"
+      ],
+      "title": "EntityPosition",
+      "type": "object"
+    },
+    "SceneInfoMsg": {
+      "properties": {
+        "type": {
+          "const": "scene_info",
+          "default": "scene_info",
+          "title": "Type",
+          "type": "string"
+        },
+        "entities": {
+          "items": {
+            "$ref": "#/$defs/EntityInfo"
+          },
+          "title": "Entities",
+          "type": "array"
+        },
+        "vis_state": {
+          "$ref": "#/$defs/VisState",
+          "default": {
+            "shadows": false,
+            "world_frame": false,
+            "link_frame": false,
+            "link_frame_size": 0.1,
+            "camera_frustum": false,
+            "face_normals": false,
+            "vertex_normals": false,
+            "wireframe": false,
+            "orthographic": false
+          }
+        },
+        "camera_state": {
+          "$ref": "#/$defs/CameraState",
+          "default": {
+            "pos": null,
+            "lookat": null,
+            "fov": null,
+            "view_matrix": null,
+            "proj_matrix": null
+          }
+        },
+        "n_envs": {
+          "default": 1,
+          "title": "N Envs",
+          "type": "integer"
+        },
+        "sim_dt": {
+          "default": 0.01,
+          "title": "Sim Dt",
+          "type": "number"
+        }
+      },
+      "required": [
+        "entities"
+      ],
+      "title": "SceneInfoMsg",
+      "type": "object"
+    },
+    "StateUpdateMsg": {
+      "properties": {
+        "type": {
+          "const": "state_update",
+          "default": "state_update",
+          "title": "Type",
+          "type": "string"
+        },
+        "time": {
+          "default": 0.0,
+          "title": "Time",
+          "type": "number"
+        },
+        "step": {
+          "default": 0,
+          "title": "Step",
+          "type": "integer"
+        },
+        "fps": {
+          "default": 0.0,
+          "title": "Fps",
+          "type": "number"
+        },
+        "paused": {
+          "default": false,
+          "title": "Paused",
+          "type": "boolean"
+        },
+        "camera_state": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CameraState"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "entity_positions": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/EntityPosition"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Entity Positions"
+        }
+      },
+      "title": "StateUpdateMsg",
+      "type": "object"
+    },
+    "SimControlMsg": {
+      "properties": {
+        "type": {
+          "const": "sim_control",
+          "default": "sim_control",
+          "title": "Type",
+          "type": "string"
+        },
+        "action": {
+          "enum": [
+            "play",
+            "pause",
+            "step",
+            "reset"
+          ],
+          "title": "Action",
+          "type": "string"
+        }
+      },
+      "required": [
+        "action"
+      ],
+      "title": "SimControlMsg",
+      "type": "object"
+    },
+    "CameraUpdateMsg": {
+      "properties": {
+        "type": {
+          "const": "camera_update",
+          "default": "camera_update",
+          "title": "Type",
+          "type": "string"
+        },
+        "action": {
+          "enum": [
+            "orbit",
+            "pan",
+            "zoom",
+            "set_pose",
+            "set_fov",
+            "reset"
+          ],
+          "title": "Action",
+          "type": "string"
+        },
+        "d_azimuth": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "D Azimuth"
+        },
+        "d_elevation": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "D Elevation"
+        },
+        "dx": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Dx"
+        },
+        "dy": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Dy"
+        },
+        "factor": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Factor"
+        },
+        "pos": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "number"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pos"
+        },
+        "lookat": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "number"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Lookat"
+        },
+        "fov": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Fov"
+        }
+      },
+      "required": [
+        "action"
+      ],
+      "title": "CameraUpdateMsg",
+      "type": "object"
+    },
+    "EntityUpdateMsg": {
+      "properties": {
+        "type": {
+          "const": "entity_update",
+          "default": "entity_update",
+          "title": "Type",
+          "type": "string"
+        },
+        "entity_idx": {
+          "title": "Entity Idx",
+          "type": "integer"
+        },
+        "qpos": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "number"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Qpos"
+        },
+        "normalize_quats": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Normalize Quats"
+        },
+        "quat_groups": {
+          "anyOf": [
+            {
+              "items": {
+                "items": {
+                  "type": "integer"
+                },
+                "type": "array"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Quat Groups"
+        },
+        "dof_idx": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Dof Idx"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Value"
+        },
+        "vis_mode": {
+          "anyOf": [
+            {
+              "enum": [
+                "visual",
+                "collision"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Vis Mode"
+        },
+        "wireframe": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Wireframe"
+        },
+        "contact_viz": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Contact Viz"
+        }
+      },
+      "required": [
+        "entity_idx"
+      ],
+      "title": "EntityUpdateMsg",
+      "type": "object"
+    },
+    "VisToggleMsg": {
+      "properties": {
+        "type": {
+          "const": "vis_toggle",
+          "default": "vis_toggle",
+          "title": "Type",
+          "type": "string"
+        },
+        "property": {
+          "title": "Property",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "title": "Value"
+        }
+      },
+      "required": [
+        "property",
+        "value"
+      ],
+      "title": "VisToggleMsg",
+      "type": "object"
+    },
+    "SetResolutionMsg": {
+      "properties": {
+        "type": {
+          "const": "set_resolution",
+          "default": "set_resolution",
+          "title": "Type",
+          "type": "string"
+        },
+        "width": {
+          "title": "Width",
+          "type": "integer"
+        },
+        "height": {
+          "title": "Height",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "width",
+        "height"
+      ],
+      "title": "SetResolutionMsg",
+      "type": "object"
+    },
+    "SetTargetFpsMsg": {
+      "properties": {
+        "type": {
+          "const": "set_target_fps",
+          "default": "set_target_fps",
+          "title": "Type",
+          "type": "string"
+        },
+        "fps": {
+          "title": "Fps",
+          "type": "number"
+        }
+      },
+      "required": [
+        "fps"
+      ],
+      "title": "SetTargetFpsMsg",
+      "type": "object"
+    }
+  }
+}

@@ -232,11 +232,8 @@ class Viewer(pyglet.window.Window):
             "flip_wireframe": False,
             "all_wireframe": False,
             "all_solid": False,
-            "shadows": shadow,
             "plane_reflection": plane_reflection,
             "env_separate_rigid": env_separate_rigid,
-            "vertex_normals": False,
-            "face_normals": False,
             "cull_faces": True,
             "offscreen": False,
             "point_size": 1.0,
@@ -244,6 +241,9 @@ class Viewer(pyglet.window.Window):
             "seg": False,
             "depth": False,
         }
+        # Set initial shadow state on ctx (single source of truth)
+        if shadow and self.gs_context is not None:
+            self.gs_context.shadow = shadow
         self._default_viewer_flags = {
             "mouse_pressed": False,
             "rotate": False,
@@ -1029,16 +1029,18 @@ class Viewer(pyglet.window.Window):
         elif self.render_flags["all_solid"]:
             flags |= RenderFlags.ALL_SOLID
 
-        if self.render_flags["shadows"] and not self._is_software:
+        # Shadows, face_normals, vertex_normals read from ctx (single source of truth)
+        if self.gs_context is not None and self.gs_context.shadow and not self._is_software:
             flags |= RenderFlags.SHADOWS_ALL
         if self.render_flags["plane_reflection"] and not self._is_software:
             flags |= RenderFlags.REFLECTIVE_FLOOR
         if self.render_flags["env_separate_rigid"]:
             flags |= RenderFlags.ENV_SEPARATE
-        if self.render_flags["vertex_normals"]:
-            flags |= RenderFlags.VERTEX_NORMALS
-        if self.render_flags["face_normals"]:
-            flags |= RenderFlags.FACE_NORMALS
+        # Read normals from ctx._extra_render_flags
+        extra = (
+            getattr(self.gs_context, "_extra_render_flags", RenderFlags.NONE) if self.gs_context else RenderFlags.NONE
+        )
+        flags |= extra
         if not self.render_flags["cull_faces"]:
             flags |= RenderFlags.SKIP_CULL_FACES
 
