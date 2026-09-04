@@ -27,6 +27,7 @@ from genesis.options import (
     MPMOptions,
     PBDOptions,
     ProfilingOptions,
+    QIPCOptions,
     RigidOptions,
     SFOptions,
     SimOptions,
@@ -95,6 +96,8 @@ class Scene(RBC):
         The options configuring the sf_solver (``scene.sim.SFSolver``).
     pbd_options : gs.options.PBDOptions
         The options configuring the pbd_solver (``scene.sim.PBDSolver``).
+    qipc_options : gs.options.QIPCOptions
+        The options configuring the qipc_solver (``scene.sim.QIPCSolver``).
     coupler_options : gs.options.CouplerOptions
         The options configuring the `coupler` between different solvers.
     vis_options : gs.options.VisOptions
@@ -123,6 +126,7 @@ class Scene(RBC):
         fem_options: FEMOptions | None = None,
         sf_options: SFOptions | None = None,
         pbd_options: PBDOptions | None = None,
+        qipc_options: QIPCOptions | None = None,
         coupler_options: BaseCouplerOptions | None = None,
         vis_options: VisOptions | None = None,
         viewer_options: ViewerOptions | None = None,
@@ -145,6 +149,7 @@ class Scene(RBC):
             fem_options,
             sf_options,
             pbd_options,
+            qipc_options,
             coupler_options,
             vis_options,
             viewer_options,
@@ -166,6 +171,7 @@ class Scene(RBC):
                 fem=fem_options,
                 sf=sf_options,
                 pbd=pbd_options,
+                qipc=qipc_options,
                 coupler=coupler_options,
                 vis=vis_options,
                 viewer=viewer_options,
@@ -359,6 +365,15 @@ class Scene(RBC):
             if surface.vis_mode not in ("visual", "particle", "recon"):
                 gs.raise_exception(
                     f"Unsupported `surface.vis_mode` for material {material}: '{surface.vis_mode}'. Expected one of: ['visual', 'particle', 'recon']."
+                )
+
+        elif isinstance(material, gs.materials.QIPC.Base):
+            if surface.vis_mode is None:
+                surface.vis_mode = "visual"
+
+            if surface.vis_mode not in ("visual",):
+                gs.raise_exception(
+                    f"Unsupported `surface.vis_mode` for material {material}: '{surface.vis_mode}'. Expected one of: ['visual']."
                 )
 
         elif isinstance(material, gs.materials.FEM.Base):
@@ -1689,6 +1704,11 @@ class Scene(RBC):
     def pbd_solver(self):
         """The scene's `pbd_solver`, managing all the `PBDEntity` in the scene."""
         return self._sim.pbd_solver
+
+    @property
+    def qipc_solver(self):
+        """The scene's `qipc_solver`, managing all the `QIPCEntity` in the scene."""
+        return self._sim.qipc_solver
 
     @property
     def segmentation_idx_dict(self):

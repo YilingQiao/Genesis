@@ -307,3 +307,19 @@ class FEMSolverState:
     @property
     def active(self):
         return self._active
+
+
+class QIPCSolverState:
+    def __init__(self, scene):
+        self._scene = scene
+        self.q = None
+        self.q_v = None
+
+    def serializable(self):
+        self._scene = None
+        self.q = self.q.detach()
+        self.q_v = self.q_v.detach()
+
+    @property
+    def scene(self):
+        return self._scene

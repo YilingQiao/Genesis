@@ -16,6 +16,7 @@ from .solvers import (
     KinematicSolver,
     MPMSolver,
     PBDSolver,
+    QIPCSolver,
     RigidSolver,
     SFSolver,
     SPHSolver,
@@ -74,6 +75,7 @@ class Simulator(RBC):
         self.pbd_solver = PBDSolver(self.scene, self, options.pbd)
         self.fem_solver = FEMSolver(self.scene, self, options.fem)
         self.sf_solver = SFSolver(self.scene, self, options.sf)
+        self.qipc_solver = QIPCSolver(self.scene, self, options.qipc)
 
         self._solvers: list["Solver"] = gs.List(
             [
@@ -85,6 +87,7 @@ class Simulator(RBC):
                 self.pbd_solver,
                 self.fem_solver,
                 self.sf_solver,
+                self.qipc_solver,
             ]
         )
 

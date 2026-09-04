@@ -949,3 +949,51 @@ class SFOptions(TimeBasedMixin):
     inlet_vel: Vec3FType = (0.0, 0.0, 1.0)
     inlet_quat: UnitVec4FType = (1.0, 0.0, 0.0, 0.0)
     inlet_s: PositiveFloat = 400.0
+
+
+class QIPCOptions(GravityMixin, TimeBasedMixin):
+    """
+    Options configuring the QIPCSolver, an affine-body Incremental Potential Contact (IPC) solver.
+
+    Note
+    ----
+    The solver compiles `dt`, `gravity` and every option below into its step kernel at build time, so none of them can
+    be changed on a built scene. It computes in float64 regardless of the Genesis precision, requires the CUDA
+    backend, and rejects parallel environments (`n_envs > 0`) and differentiable mode.
+
+    Parameters
+    ----------
+    d_hat : float, optional
+        Contact activation distance, in meters. Bodies repel each other once closer than this, so a larger value keeps
+        a visible cushion between resting objects but starts contact forces earlier and activates more contact pairs
+        per step; a smaller value gives crisper resting contact at the cost of harder solves when objects approach
+        fast. Defaults to 0.01.
+    contact_kappa : float, optional
+        Contact barrier stiffness. A higher value squeezes the residual gap between touching bodies at the cost of a
+        stiffer system that takes more solver iterations; a lower value solves faster but lets contact behave softer
+        within the activation distance. Defaults to 1e5.
+    newton_dv_threshold : float, optional
+        Convergence threshold on the per-step velocity correction, in m/s. Lower is more accurate and costs more
+        Newton iterations per step. Defaults to 1e-2.
+    n_newton_iterations : int, optional
+        Maximum number of Newton iterations per step. A step that hits this cap keeps the last iterate, trading
+        accuracy for bounded cost. Defaults to 100.
+    n_linesearch_iterations : int, optional
+        Maximum number of line search halvings per Newton iteration. Defaults to 100.
+    pcg_threshold : float, optional
+        Relative residual threshold of the preconditioned conjugate gradient (PCG) linear solver. Defaults to 1e-4.
+    n_pcg_iterations : int, optional
+        Maximum number of PCG iterations per Newton iteration. Defaults to 200.
+    n_contact_pairs_init : int, optional
+        Initial capacity of the contact pair buffers. A hint only: the solver grows the buffers on demand at runtime,
+        so undersizing costs one reallocation, never correctness. Defaults to 4096.
+    """
+
+    d_hat: PositiveFloat = 0.01
+    contact_kappa: PositiveFloat = 1e5
+    newton_dv_threshold: PositiveFloat = 1e-2
+    n_newton_iterations: PositiveInt = 100
+    n_linesearch_iterations: PositiveInt = 100
+    pcg_threshold: PositiveFloat = 1e-4
+    n_pcg_iterations: PositiveInt = 200
+    n_contact_pairs_init: PositiveInt = 4096
